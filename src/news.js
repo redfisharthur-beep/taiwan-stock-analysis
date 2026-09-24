@@ -10,8 +10,7 @@ const SOURCE_LINKS=[
  ["證券櫃檯買賣中心",OFFICIAL.otc],
  ["中央社","https://www.cna.com.tw/"],
  ["MoneyDJ 理財網","https://www.moneydj.com/"],
- ["Reuters 路透社","https://www.reuters.com/"],
- ["Goodinfo! 台灣股市資訊網","https://goodinfo.tw/"]
+ ["Reuters 路透社","https://www.reuters.com/"]
 ];
 export const newsSources=()=>SOURCE_LINKS.map(([name,url])=>({name,url,status:"not_necessarily_checked"}));
 const roc=x=>{const s=String(x??"").replace(/[^0-9]/g,"");
@@ -154,8 +153,7 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null,s
   {name:"證券櫃檯買賣中心",status:market==="上櫃"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.otc},
   ...["中央社","MoneyDJ 理財網","Reuters 路透社"].map(name=>({name,
     status:articles.some(a=>a.publisher===name)?"provided":"not_connected",url:SOURCE_LINKS.find(x=>x[0]===name)[1]})),
-  ...["Goodinfo! 台灣股市資訊網"].map(name=>({name,status:"reference_only",
-    url:"https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID="+stock}))],
+],
   warnings:[official.error,feedError].filter(Boolean),
   note:result.status==="unverified"?
    "沒有完成同事件跨來源核對；未找到新聞不代表沒有風險。":
