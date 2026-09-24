@@ -107,9 +107,9 @@ export function scoreStock({
    round(pastPER.filter(r=>num(r.per)<=num(currentPER.per)).length/pastPER.length*100):null;
  const perScore=perPercentile===null?null:perPercentile<=20?10:perPercentile<=40?8:
   perPercentile<=60?6:perPercentile<=80?3:1;
- const institutional=institutionalRatio(institutional,raw,date);
- const flowScore=institutional===null?null:institutional.ratio>=4?10:institutional.ratio>=2?8:
-  institutional.ratio>0?6:institutional.ratio===0?5:institutional.ratio>=-2?3:1;
+ const flowStats=institutionalRatio(institutional,raw,date);
+ const flowScore=flowStats===null?null:flowStats.ratio>=4?10:flowStats.ratio>=2?8:
+  flowStats.ratio>0?6:flowStats.ratio===0?5:flowStats.ratio>=-2?3:1;
  const trend=holding?.trend;
  const holderScore=!trend?null:trend.risingWeeks===2&&trend.changeTwoWeeks>=1?5:
   trend.risingWeeks===2?4:trend.fallingWeeks===0?3:trend.changeTwoWeeks>=0?2:1;
@@ -145,9 +145,9 @@ export function scoreStock({
   part("產業事件",2,null,null,null,null,"產業事件尚無可核實的資料")
  ];
  const chips=[
-  part("法人近五日淨買賣／成交量",10,flowScore,institutional?
-   {netShares:institutional.net,totalShares:institutional.volume,ratioPct:institutional.ratio}:null,
-   institutional?.date,institutional?"FinMind":null,"同五個交易日法人買賣超占總成交股數比例；缺任一天資料即不計分"),
+  part("法人近五日淨買賣／成交量",10,flowScore,flowStats?
+   {netShares:flowStats.net,totalShares:flowStats.volume,ratioPct:flowStats.ratio}:null,
+   flowStats?.date,flowStats?"FinMind":null,"同五個交易日法人買賣超占總成交股數比例；缺任一天資料即不計分"),
   part("400張以上持股三週趨勢",5,holderScore,trend?
    {holderPct:holding.share,weeklyChangesPct:trend.weeklyChanges,
     changeTwoWeeksPct:trend.changeTwoWeeks}:null,holding?.date,holding?.source,
