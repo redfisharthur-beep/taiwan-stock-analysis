@@ -1,6 +1,6 @@
 import {finmind,officialQuote,scanOfficialUniverse,rankUniverseCandidates,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
-import {getHoldingRows,concentration} from "./holding.js";
+import {getHoldingRows,concentration,archivedHoldingForStock} from "./holding.js";
 import {researchNews} from "./news.js";
 import {assessUndervaluation} from "./value.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
@@ -47,6 +47,12 @@ async function analyze(stock,env,override=null,shared=null){
  if(!holding){try{const tdccRows=shared?.tdccRows??await getHoldingRows();
    holding=concentration(tdccRows,stock,marketDate);
  }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}}
+ if(!holding?.trend&&!shared?.bulk&&!shared?.skipArchive){
+  try{
+   const archive=await archivedHoldingForStock(stock,marketDate);
+   if(archive?.trend)holding=archive;
+  }catch(error){warnings.push("TDCC 公開歷史備份暫不可用："+String(error.message||error))}
+ }
  try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
    shared?.bulk||shared?.skipNews?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
    shared?.newsByMarket?.[official?.market||override?.market],official?.name||override?.name||"");}
@@ -129,7 +135,7 @@ async function performScheduled(controller,env){
    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
    "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"};
  try{
-  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,tdccRows:[],
+  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,skipArchive:true,tdccRows:[],
    // A stored weekly snapshot is shared across stocks; never re-download TDCC per company.
    cachedHolding:held,newsByMarket:{
     "上市":{rows:[],error:"排程未批次核對新聞"},
