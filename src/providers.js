@@ -109,7 +109,7 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
   if(ratios.status==="fulfilled"&&Array.isArray(ratios.value)){
    for(const item of ratios.value){
     const code=String(item.Code??item.SecuritiesCompanyCode??"").trim();
-    if(!/^\\d{4}$/.test(code))continue;
+    if(!/^[0-9]{4}$/.test(code))continue;
     ratioMap.set(code,{per:n(item.PEratio??item.PriceEarningRatio),
      pbr:n(item.PBratio??item.PriceBookRatio),
      dividendYield:n(item.DividendYield??item.YieldRatio),date:rocDate(item.Date)});
@@ -118,7 +118,7 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
   const seen=new Set(),rows=[];
   for(const raw of quotes.value){
    const stock=String(raw[m.code]??"").trim();
-   if(!/^\\d{4}$/.test(stock)||stock.startsWith("00")||seen.has(stock))continue;
+   if(!/^[0-9]{4}$/.test(stock)||stock.startsWith("00")||seen.has(stock))continue;
    seen.add(stock);
    const quoteDate=rocDate(raw.Date),ratio=ratioMap.get(stock)||null;
    const close=n(raw[m.close]),turnover=n(raw[m.turnover]??raw.TradeValue??raw.TransactionAmount);
