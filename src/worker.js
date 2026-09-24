@@ -178,27 +178,31 @@ async function performScheduled(controller,env){
   return;
  }
  if(!env.FINMIND_TOKEN)return;
- const row=await claimNextCompany(db);
- if(!row)return;
- const override={kind:row.industry==="ETF"?"etf":"stock",market:row.market,source:row.market==="上市"?"TWSE":"TPEx",name:row.name,
-  close:row.close,date:row.date,url:row.market==="上市"?
-   "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
-   "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"};
- if(row.industry==="ETF"){
+ // Bounded batches make the first five researched results available sooner;
+ // each item is still independently source-verified and persisted.
+ for(let attempt=0;attempt<3;attempt++){
+  const row=await claimNextCompany(db);
+  if(!row)break;
+  const override={kind:row.industry==="ETF"?"etf":"stock",market:row.market,source:row.market==="上市"?"TWSE":"TPEx",name:row.name,
+   close:row.close,date:row.date,url:row.market==="上市"?
+    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
+    "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"};
+  if(row.industry==="ETF"){
+   try{
+    const response=await analyzeETF(row.stock,env,{quote:override,errors:[]});
+    if(!response.ok)throw Error("ETF 深入分析 HTTP "+response.status);
+    await saveETFResearch(db,row,await response.json());
+   }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error))}
+   continue;
+  }
   try{
-   const response=await analyzeETF(row.stock,env,{quote:override,errors:[]});
-   if(!response.ok)throw Error("ETF 深入分析 HTTP "+response.status);
-   await saveETFResearch(db,row,await response.json());
-  }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error))}
-  return;
+   const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,newsByMarket:{
+     "上市":{rows:[],error:"排程未批次核對新聞"},
+     "上櫃":{rows:[],error:"排程未批次核對新聞"}},
+     persist:(clean,body)=>saveResearch(db,row,clean,body)});
+   if(!response.ok)throw Error("深入分析 HTTP "+response.status);
+  }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error));}
  }
- try{
-  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,newsByMarket:{
-    "上市":{rows:[],error:"排程未批次核對新聞"},
-    "上櫃":{rows:[],error:"排程未批次核對新聞"}},
-    persist:(clean,body)=>saveResearch(db,row,clean,body)});
-  if(!response.ok)throw Error("深入分析 HTTP "+response.status);
- }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error));}
 }
 // Homepage lists only verified, fully covered results from the entire stored universe.
 // Never use an unscored price/valuation prescreen as an apparent top-score recommendation.
@@ -230,7 +234,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"verified_100_coverage_full_market_scores",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.20.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.20.1",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -276,7 +280,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.20.0");
+  const key=new Request(url.origin+"/api/observations?model=0.20.1");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
