@@ -82,13 +82,13 @@ export function scoreNews(events){
   // A real, dated official MOPS filing verifies that the event was announced,
   // even when no licensed independent article is available. This is only
   // a partial source-verification observation, not sentiment or future return.
-  const official=[...events].filter(e=>e.kind&&types[e.kind]&&e.date&&
+  const official=[...events].filter(e=>e.date&&e.title&&String(e.source||"").startsWith("MOPS")&&
    (e.verification==="official_only"||e.verification==="independent_corrob"))
    .sort((a,b)=>b.date.localeCompare(a.date))[0];
   if(official)return {status:"official_event_only",events,sourceCount:1,
    items:[{name:"重大公告與事件",max:5,score:2,value:official.title,
     date:official.date,source:official.source,
-    note:"已核對官方公告的事件種類；獨立新聞尚未核實，2 分僅代表官方事件資料有據，不評估股價方向"}]};
+    note:"已核對 MOPS 公告存在、公司與日期；獨立新聞尚未核實，2 分僅代表官方事件資料有據，不評估股價方向"}]};
   return {status:"unverified",items:[],events,sourceCount:0};
  }
  const current=[...verified].sort((a,b)=>b.date.localeCompare(a.date))[0];
