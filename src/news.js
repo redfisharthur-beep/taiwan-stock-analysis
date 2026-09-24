@@ -103,27 +103,53 @@ export function scoreNews(events){
 }
 // Public news-discovery metadata only (headline, publisher URL and timestamp).
 // Do not treat search matches as verified facts, independent reporting or a sentiment score.
+/**
+ * Discover titles and ORIGINAL publisher URLs through GDELT's metadata API.
+ * Does not fetch Reuters/CNA/MoneyDJ article bodies, bypass access controls,
+ * treat aggregation as licensed content, or score mere headlines as verified facts.
+ */
+const preferredHosts=[
+ ["中央社","cna.com.tw"],["MoneyDJ 理財網","moneydj.com"],["Reuters 路透社","reuters.com"]
+];
+function discoveryPublisher(articleUrl){
+ try{
+  const url=new URL(articleUrl);
+  if(url.protocol!=="https:")return null;
+  const host=url.hostname.toLowerCase();
+  const found=preferredHosts.find(([,domain])=>host===domain||host.endsWith("."+domain));
+  return {publisher:found?.[0]||host,host,preferred:!!found};
+ }catch{return null}
+}
 export async function discoverNews(stockName,marketDate,fetcher=fetch){
  const name=String(stockName||"").trim().slice(0,24);
  if(name.length<2||!marketDate)return {articles:[],status:"missing_company_name"};
  const url=new URL("https://api.gdeltproject.org/api/v2/doc/doc");
  url.searchParams.set("query",'"'+name.replaceAll('"',"")+'"');
  url.searchParams.set("mode","artlist");url.searchParams.set("format","json");
- url.searchParams.set("timespan","1week");url.searchParams.set("maxrecords","20");
+ url.searchParams.set("timespan","2weeks");url.searchParams.set("maxrecords","50");
  const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),6500);
  try{
   const resp=await fetcher(url.toString(),{signal:ctrl.signal,headers:{Accept:"application/json"}});
   if(!resp.ok)return {articles:[],status:"unavailable"};
-  const bytes=await resp.arrayBuffer();if(bytes.byteLength>400000)return {articles:[],status:"unavailable"};
+  const bytes=await resp.arrayBuffer();if(bytes.byteLength>600000)return {articles:[],status:"unavailable"};
   const payload=JSON.parse(new TextDecoder().decode(bytes));
   const list=Array.isArray(payload.articles)?payload.articles:[];
-  const items=list.filter(a=>typeof a.url==="string"&&a.url.startsWith("https://")&&
+  const seen=new Set();
+  const items=list.filter(a=>typeof a.url==="string"&&
     typeof a.title==="string"&&a.title.length>=10&&typeof a.seendate==="string")
-   .map(a=>({title:a.title.slice(0,180),url:a.url,publisher:String(a.domain||"").slice(0,90),
-    date:a.seendate.slice(0,4)+"-"+a.seendate.slice(4,6)+"-"+a.seendate.slice(6,8),
-    verification:"not_independently_verified"}))
-   .filter(a=>a.date<=marketDate&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(a.date)).slice(0,10);
-  return {articles:items,status:items.length?"discovered":"no_matches"};
+   .map(a=>{
+    const publisher=discoveryPublisher(a.url);
+    if(!publisher)return null;
+    const date=a.seendate.slice(0,4)+"-"+a.seendate.slice(4,6)+"-"+a.seendate.slice(6,8);
+    return {title:a.title.trim().slice(0,180),url:a.url,publisher:publisher.publisher,
+     preferredPublisher:publisher.preferred,date,verification:"headline_metadata_only"};
+   }).filter(a=>a&&a.date<=marketDate&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(a.date))
+   .filter(a=>{const key=a.url.replace(/[#?].*$/,"").toLowerCase();if(seen.has(key))return false;seen.add(key);return true})
+   .sort((a,b)=>(Number(b.title.includes(name))-Number(a.title.includes(name)))||
+    Number(b.preferredPublisher)-Number(a.preferredPublisher)||b.date.localeCompare(a.date))
+   .slice(0,10);
+  return {articles:items,status:items.length?"discovered":"no_matches",
+   method:"GDELT 原始新聞網址、標題與首次發現日；非全文爬取或獨立核實"};
  }catch{return {articles:[],status:"unavailable"}}
  finally{clearTimeout(timer)}
 }
@@ -190,7 +216,9 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null,s
   {name:"臺灣證券交易所",status:market==="上市"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.listed},
   {name:"證券櫃檯買賣中心",status:market==="上櫃"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.otc},
   ...["中央社","MoneyDJ 理財網","Reuters 路透社"].map(name=>({name,
-    status:articles.some(a=>a.publisher===name)?"provided":"not_connected",url:SOURCE_LINKS.find(x=>x[0]===name)[1]})),
+    status:articles.some(a=>a.publisher===name)?"provided":
+     discovery.articles?.some(a=>a.publisher===name)?"discovered":"not_connected",
+    url:SOURCE_LINKS.find(x=>x[0]===name)[1]})),
 ],
   warnings:[official.error,feedError].filter(Boolean),
   note:result.status==="unverified"?
