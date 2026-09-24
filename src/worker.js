@@ -4,7 +4,7 @@ import {selectDailyLeaders} from "./ranking.js";
 import {getHoldingRows,concentration} from "./holding.js";
 import {loadOfficialDisclosures,researchNews} from "./news.js";
 import {valueWatchlist} from "./value.js";
-import {sinopacReady,validateOwner,privateBrokerSnapshot} from "./sinopac.js";
+import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
@@ -46,7 +46,22 @@ async function analyze(stock,env,override=null,shared=null){
    shared?.bulk?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
    shared?.newsByMarket?.[official?.market||override?.market],official?.name||override?.name||"");}
  catch(error){warnings.push("重大訊息核對暫未完成："+String(error.message||error))}
- const score=scoreStock({...clean,official,holding,newsResearch});
+ // Only individual analysis invokes Shioaji; daily five-stock requests must not turn
+ // into repeated historical polling of a personal brokerage connection.
+ let brokerVerification={state:sinopacReady(env)?"not_checked":"not_configured",
+  reason:"首頁批次不查詢券商，個股將盡力對照已完成交易日"};
+ let brokerTechnicalPrices=[];
+ if(!override&&sinopacReady(env)&&official?.date&&verification.state==="一致"&&
+    /^[0-9]{4}$/.test(stock)){
+   const broker=await privateBrokerHistory(stock,official.date,env);
+   brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
+   // Permission must be explicitly verified before brokerage-derived history is
+   // used for any publicly rendered indicator. No broker prices are ever serialized.
+   if(env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&
+       brokerVerification.state==="matched"&&broker.bars?.length>=61)
+     brokerTechnicalPrices=broker.bars;
+ }
+ const score=scoreStock({...clean,official,holding,newsResearch,brokerTechnicalPrices});
  if(verification.state!=="一致"||official?.date!==clean.prices.at(-1)?.date)score.score=null;
  const latest=clean.prices.at(-1);
  const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&
@@ -55,6 +70,8 @@ async function analyze(stock,env,override=null,shared=null){
  return reply({stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
   score,candles,holding,newsResearch,datasetHealth,
+  brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason,
+   useInPublicScoring:env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&brokerVerification.state==="matched"},
   missingMetrics:Object.entries(score.parts).flatMap(([group,part])=>
     part.items.filter(item=>item.score===null).map(item=>({group,name:item.name,reason:item.note||"來源資料不足"}))),
   valuationLatest:clean.valuation.filter(v=>v.date<=marketDate&&
@@ -119,18 +136,12 @@ export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
   rankingMode:"on_demand_no_database",sinopacConfigured:sinopacReady(env),
-  sinopacPublicDisplay:false,version:"0.11.0",time:new Date().toISOString()});
- if(url.pathname==="/api/shioaji/test"){
-  // Owner-only. NEVER expose personal broker market data in public stock pages or rankings.
-  if(!await validateOwner(request,env))return reply({error:"Not found"},404);
-  const stock=(url.searchParams.get("stock")||"").trim();
-  if(!/^[0-9]{4}$/.test(stock))return reply({error:"需輸入四位數股票代號"},400);
-  const data=await privateBrokerSnapshot(stock,env);
-  return reply(data,data.status==="ok"?200:503,0);
- }
+  brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
+   env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
+  version:"0.12.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.11");
+  const key=new Request(url.origin+"/api/top5?model=0.12");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env),response=reply(body,200,1800);
@@ -143,7 +154,7 @@ export default {async fetch(request,env,ctx){
   const exclusion=(url.searchParams.get("exclude")||"").split(",").filter(v=>
    v.length===4&&[...v].every(ch=>ch>="0"&&ch<="9")).slice(0,5);
   const exclude=[...new Set(exclusion)].sort();
-  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.11"),
+  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.12"),
    cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
@@ -156,7 +167,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.11"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.12"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=await analyze(stock,env);
