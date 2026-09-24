@@ -5,5 +5,5 @@
   "compatibility_date": "2026-09-24",
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
   "observability": { "enabled": true },
-  "triggers": { "crons": ["*/5 * * * *", "0 11 * * 1-5", "30 11 * * 5"] }
+  "triggers": { "crons": ["*/5 * * * *", "0 11 * * MON-FRI", "30 11 * * FRI"] }
 }
