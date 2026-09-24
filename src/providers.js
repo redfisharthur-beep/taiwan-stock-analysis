@@ -114,7 +114,11 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
  const successful=jobs.filter(j=>j.status==="fulfilled").map(j=>j.value);
  const marketDate=successful.map(m=>m.date).filter(Boolean).sort().at(-1)||null;
  const all=successful.flatMap(m=>m.rows);
- const sameDate=all.filter(r=>r.date===marketDate);
+ // Segregated watch groups may display each exchange's own most recent verified
+ // session; never silently erase the OTC group just because the listed market
+ // updated earlier. marketComplete still reports cross-market date differences.
+ const latestByMarket=new Map(successful.map(m=>[m.market,m.date]));
+ const sameDate=all.filter(r=>r.date&&r.date===latestByMarket.get(r.market));
  const priced=sameDate.filter(r=>r.close>0&&Number.isFinite(r.close));
  const affordable=priced.filter(r=>r.close<priceCeiling);
  const tradable=affordable.filter(r=>r.turnover>0&&r.volume>0);
@@ -130,7 +134,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
   pricedCount:priced.length,affordableCount:affordable.length,
   tradableCount:tradable.length,excludedOverCeiling:priced.filter(r=>r.close>=priceCeiling).length,
   missingPriceCount:all.filter(r=>!Number.isFinite(r.close)||r.close<=0).length,
-  staleMarketCount:all.filter(r=>r.date&&r.date!==marketDate).length,
+  staleMarketCount:all.filter(r=>r.date&&r.date!==latestByMarket.get(r.market)).length,
   stocks:tradable,allStocks:all,kindCounts:{listed:all.filter(x=>x.market==="上市"&&x.kind==="stock").length,
    otc:all.filter(x=>x.market==="上櫃"&&x.kind==="stock").length,
    etf:all.filter(x=>x.kind==="etf").length}};
