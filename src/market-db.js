@@ -1,5 +1,4 @@
 // SQLite D1 storage; all statements use bound parameters. Missing binding stays read-only/fallback.
-import {indicators} from "./scoring.js";
 import {concentration,getHoldingRows} from "./holding.js";
 const now=()=>new Date().toISOString();
 const numeric=x=>typeof x==="number"&&Number.isFinite(x)?x:null;
@@ -96,7 +95,9 @@ export async function saveResearch(db,company,clean,body){
  const item=(rows,key)=>rows.find(x=>x.name===key)||null;
  const eps=item(fundamental,"EPS 與去年同季"),cash=item(fundamental,"營業現金流（初步）"),
   quality=item(fundamental,"獲利品質與負債"),revenue=item(fundamental,"單月營收年增率");
- const stats={per:body.valuationLatest?.per??company.per??null,
+ const stats={marketDate:date,verified:body.verification?.state==="一致"&&body.official?.date===date,
+  financialInsights:body.financialInsights||null,technicalDate:s.indicators?.date||null,
+  per:body.valuationLatest?.per??company.per??null,
   pbr:body.valuationLatest?.pbr??company.pbr??null,dividendYield:body.valuationLatest?.dividendYield??company.dividendYield??null,
   valuationDate:body.valuationLatest?.date??company.valuationDate??null,
   eps:eps?.value?.eps??null,epsYoY:eps?.value?.yoyPct??null,epsDate:eps?.date??null,
@@ -137,7 +138,8 @@ export async function saveResearch(db,company,clean,body){
   numeric(x.close),numeric(x.volume),"FinMind")));
  const latestStmt=[eps?.date,cash?.date,quality?.date].filter(Boolean).sort().at(-1)||null;
  const technicalDate=s.indicators?.date||null;
- const chipsDate=stats.institutionalRatio!==null?date:null;
+ const chipsDate=stats.institutionalRatio!==null&&stats.marginChange!==null&&
+  body.holding?.trend&&body.holding?.date?body.holding.date:null;
  await db.prepare(`INSERT INTO market_profiles
  (stock,market_date,financial_period,technical_date,chips_date,score_json,metrics_json,candles_json,dataset_health_json,fetched_at)
  VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(stock) DO UPDATE SET
