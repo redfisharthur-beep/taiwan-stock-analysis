@@ -58,9 +58,16 @@ export async function officialNews(stock,marketDate,market,prefetched=null){
  return {events:parseDisclosures(fetched.rows,stock,marketDate,"MOPS（"+market+"）",url),error:fetched.error};
 }
 const PUBLISHERS=new Set(["中央社","MoneyDJ 理財網","Reuters 路透社"]);
+const publisherHosts={"中央社":["cna.com.tw"],"MoneyDJ 理財網":["moneydj.com"],
+ "Reuters 路透社":["reuters.com","reutersconnect.com"]};
+function publisherUrlMatches(article){
+ try{const host=new URL(article.url).hostname.toLowerCase();
+  return (publisherHosts[article.publisher]||[]).some(domain=>host===domain||host.endsWith("."+domain));
+ }catch{return false}
+}
 export function corroborate(events,articles,stock){
  const valid=(Array.isArray(articles)?articles:[]).filter(a=>a.stock===stock&&PUBLISHERS.has(a.publisher)&&
-  typeof a.url==="string"&&a.url.startsWith("https://")&&a.originalPublisher===a.publisher&&
+  typeof a.url==="string"&&a.url.startsWith("https://")&&publisherUrlMatches(a)&&a.originalPublisher===a.publisher&&
   typeof a.publishedAt==="string"&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(a.publishedAt)&&
   typeof a.title==="string"&&a.title.length>=10);
  return events.map(e=>{
@@ -99,7 +106,7 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null){
  const result=scoreNews(events);
  if(result.status==="unverified"&&official.events.length===0&&articles.length){
    const independent=articles.filter(a=>a.stock===stock&&PUBLISHERS.has(a.publisher)&&a.originalPublisher===a.publisher&&
-     typeof a.url==="string"&&a.url.startsWith("https://")&&typeof a.title==="string"&&a.title.length>=10&&
+     typeof a.url==="string"&&a.url.startsWith("https://")&&publisherUrlMatches(a)&&typeof a.title==="string"&&a.title.length>=10&&
      typeof a.publishedAt==="string"&&a.publishedAt<=marketDate&&eventKind(a.title)===a.eventType);
    const byKind=new Map();
    for(const a of independent){const key=a.eventType+"|"+a.publishedAt;if(!byKind.has(key))byKind.set(key,[]);byKind.get(key).push(a)}
@@ -112,8 +119,10 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null){
    }
  }
 
- return {...result,checked:[{name:market==="上市"?"臺灣證券交易所／MOPS":"櫃買中心／MOPS",
-  status:official.error?"unavailable":"checked",url:market==="上市"?OFFICIAL.listed:OFFICIAL.otc},
+ return {...result,checked:[
+  {name:"公開資訊觀測站",status:official.error?"unavailable":"checked",url:"https://mops.twse.com.tw/"},
+  {name:"臺灣證券交易所",status:market==="上市"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.listed},
+  {name:"證券櫃檯買賣中心",status:market==="上櫃"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.otc},
   ...["中央社","MoneyDJ 理財網","Reuters 路透社"].map(name=>({name,
     status:articles.some(a=>a.publisher===name)?"provided":"not_connected",url:SOURCE_LINKS.find(x=>x[0]===name)[1]})),
   ...["Goodinfo! 台灣股市資訊網"].map(name=>({name,status:"reference_only",
