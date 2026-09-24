@@ -27,64 +27,6 @@ export function normalize(prices,revenue,financials,investors,valuation=[],cashF
 export function reconcile(official,prices){if(!official)return {state:"無法確認",note:"尚未取得官方同行情資料"};if(!official.date)return {state:"日期未知",note:"官方回應缺乏可辨認日期，不進行價格自動核對"};const match=prices.find(p=>p.date===official.date);if(!match)return {state:"日期不一致",note:"FinMind 沒有相同交易日資料，不能直接比較最新兩筆"};const equal=Math.abs(match.close-official.close)<0.0001;return {state:equal?"一致":"不一致",note:equal?"相同交易日收盤價一致":"官方與 FinMind 同日價格不同，暫停總分顯示",date:official.date,finmindClose:match.close,officialClose:official.close}}
 
 
-// 免資料庫每日預篩：官方全市場行情一次取得，依成交金額挑出上市與上櫃候選。
-// 成交金額只用於界定樣本，不是買入訊號或全市場 100 分排名。
-export async function officialCandidates(perMarket=5,{mode="liquid",exclude=[]}={}){
- const markets=[
-  {market:"上市",source:"TWSE",url:"https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-   id:"Code",name:"Name",close:"ClosingPrice",value:"TradeValue",volume:"TradeVolume"},
-  {market:"上櫃",source:"TPEx",url:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
-   id:"SecuritiesCompanyCode",name:"CompanyName",close:"Close",value:"TransactionAmount",volume:"TradingShares"}
- ];
- const jobs=await Promise.allSettled(markets.map(async m=>{
-   const raw=await json(m.url);
-   if(!Array.isArray(raw)||raw.length===0)throw Error("官方行情格式異常或資料為空");
-   const converted=raw.map(r=>{
-     const stock=String(r[m.id]??"").trim();
-     const close=n(r[m.close]),turnover=n(r[m.value]??r.TradeValue??r.TransactionAmount);
-     const volume=n(r[m.volume]??r.TradingShares??r.TradeVolume);
-     const date=rocDate(r.Date);
-     return {stock,name:String(r[m.name]??"").trim(),market:m.market,source:m.source,
-       url:m.url,close,date,turnover,volume};
-   }).filter(r=>r.stock.length===4&&[...r.stock].every(ch=>ch>="0"&&ch<="9")&&
-       !r.stock.startsWith("00")&&r.date&&r.close>0&&r.turnover>0&&r.volume>0);
-   const recentDate=converted.map(r=>r.date).sort().at(-1);
-   let pool=converted.filter(r=>r.date===recentDate&&!exclude.includes(r.stock));
-   if(mode==="value"){
-     const metricsUrl=m.market==="上市"?
-       "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL":
-       "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis";
-     const ratios=await json(metricsUrl);
-     if(!Array.isArray(ratios))throw Error("官方估值資料格式異常");
-     const ratioMap=new Map(ratios.map(v=>[String(v.Code??v.SecuritiesCompanyCode??"").trim(),{
-       per:n(v.PEratio??v.PriceEarningRatio),
-       pbr:n(v.PBratio??v.PriceBookRatio),
-       yield:n(v.DividendYield??v.YieldRatio),
-       date:rocDate(v.Date)
-     }]));
-     pool=pool.map(r=>({...r,screen:ratioMap.get(r.stock)}))
-       .filter(r=>r.screen&&r.screen.per>0&&r.screen.per<=22&&
-         r.screen.pbr>0&&r.screen.pbr<=2.5&&
-         r.turnover>=1000000&&(!r.screen.date||r.screen.date===recentDate))
-       .sort((a,b)=>{
-         const sa=a.screen.per+4*a.screen.pbr-(a.screen.yield>0&&a.screen.yield<20?a.screen.yield:0)*.2;
-         const sb=b.screen.per+4*b.screen.pbr-(b.screen.yield>0&&b.screen.yield<20?b.screen.yield:0)*.2;
-         return sa-sb||b.turnover-a.turnover||a.stock.localeCompare(b.stock);
-       });
-   }else pool.sort((a,b)=>b.turnover-a.turnover||a.stock.localeCompare(b.stock));
-   return {market:m.market,date:recentDate||null,totalEligible:converted.length,
-     stocks:pool.slice(0,perMarket)};
- }));
- const warnings=jobs.flatMap((j,i)=>j.status==="rejected"?
-   [markets[i].source+" 官方市場行情暫不可用："+String(j.reason?.message||j.reason)]:[]);
- const successful=jobs.filter(j=>j.status==="fulfilled").map(j=>j.value);
- const marketDate=successful.map(m=>m.date).filter(Boolean).sort().at(-1)||null;
- return {marketDate,warnings,markets:successful.map(m=>({market:m.market,date:m.date,
-   totalEligible:m.totalEligible,sampled:m.date===marketDate?m.stocks.length:0})),
-   candidates:successful.filter(m=>m.date===marketDate).flatMap(m=>m.stocks)};
-}
-
-
 /**
  * 全市場的「官方日行情＋相對估值」初篩。
  * 逐一掃描兩市場每日行情所有可辨認的四位數股票，不用成交額前幾名當母體。
