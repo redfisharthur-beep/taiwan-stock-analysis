@@ -31,7 +31,8 @@ async function analyze(stock,env,override=null,shared=null){
  try{const tdccRows=shared?.tdccRows??await getHoldingRows();
    holding=concentration(tdccRows,stock,marketDate);
  }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}
- try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",env,
+ try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
+   shared?.bulk?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null}:env,
    shared?.newsByMarket?.[official?.market||override?.market]);}
  catch(error){warnings.push("重大訊息核對暫未完成："+String(error.message||error))}
  const score=scoreStock({...clean,official,holding,newsResearch});
@@ -55,16 +56,19 @@ async function analyze(stock,env,override=null,shared=null){
 async function computeTopFive(env){
  if(!env.FINMIND_TOKEN)return {ready:false,reason:"尚未設定 FINMIND_TOKEN Secret；未產生榜單。",
   marketDate:null,stocks:[]};
- const official=await officialCandidates(5);
+ // Free Workers: 50 external subrequests/invocation. Six stocks × 7 FinMind +
+ // two official quotes + two MOPS lists = 46 before redirects; no expensive TDCC bulk CSV.
+ const perMarket=env.FULL_SCREENING_ENABLED==="true"?5:3;
+ const official=await officialCandidates(perMarket);
  if(!official.candidates.length)return {ready:false,reason:"尚未取得帶有有效交易日期的官方行情，無法產生今日觀察名單。",
   marketDate:official.marketDate,sourceWarnings:official.warnings,stocks:[]};
  const selected=official.candidates;
  // Each official open-data file is requested once per daily computation, not once per stock.
- const [tdccResult,listedNews,otcNews]=await Promise.allSettled([
-  getHoldingRows(),loadOfficialDisclosures("上市"),loadOfficialDisclosures("上櫃")
+ const [listedNews,otcNews]=await Promise.allSettled([
+  loadOfficialDisclosures("上市"),loadOfficialDisclosures("上櫃")
  ]);
  const shared={
-  tdccRows:tdccResult.status==="fulfilled"?tdccResult.value:[],
+  tdccRows:[],bulk:true,
   newsByMarket:{
    "上市":listedNews.status==="fulfilled"?listedNews.value:{rows:[],error:"上市公告來源暫時不可用"},
    "上櫃":otcNews.status==="fulfilled"?otcNews.value:{rows:[],error:"上櫃公告來源暫時不可用"}
@@ -87,7 +91,7 @@ async function computeTopFive(env){
  const value=valueWatchlist(good,{marketDate:official.marketDate,candidateCount:selected.length});
  return {ready:true,...ranking,value,asOf:new Date().toISOString(),
   sourceWarnings:[...official.warnings,...failed,
-    ...(tdccResult.status==="rejected"?["TDCC 資料暫無法取得"]:[])],
+    "每日觀察清單未批次下載 TDCC 大型週資料；點開個股時才嘗試官方股權集中度核對。"],
   markets:official.markets,
   reason:ranking.stocks.length?
    "僅比較官方依成交金額預篩的 "+selected.length+" 檔候選股票，非全市場完整四面向最高分前五。":
