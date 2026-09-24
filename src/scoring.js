@@ -79,9 +79,17 @@ export function scoreStock({
  const date=latest?.date||null;
  // Never compare adjusted prices with official raw closing prices. Only use matching dates for technicals.
  const adj=[...adjusted].filter(r=>r.date<=date&&num(r.close)>0).sort((a,b)=>a.date.localeCompare(b.date));
- const cleanAdj=adj.length>=61&&adj.at(-1).date===date&&adj.every(r=>raw.some(p=>p.date===r.date))?
-  adj.map(r=>({...r,volume:raw.find(p=>p.date===r.date)?.volume??null})):null;
- const tech=cleanAdj?indicators(cleanAdj):null;
+ const rawDates=new Map(raw.map(p=>[p.date,p]));
+ // Prefer the complete adjusted series if it is fresh. A delayed/limited adjusted dataset
+ // must not suppress valid technical research derived from the separately verified raw OHLC.
+ const aligned=adj.filter(r=>rawDates.has(r.date)).map(r=>({
+   ...r,volume:rawDates.get(r.date).volume
+ }));
+ const cleanAdj=aligned.length>=61&&aligned.at(-1).date===date?aligned:null;
+ const technicalMode=cleanAdj?"adjusted":raw.length>=61?"raw":"unavailable";
+ const tech=technicalMode==="adjusted"?indicators(cleanAdj):
+   technicalMode==="raw"?indicators(raw):null;
+ const technicalSource=technicalMode==="adjusted"?"FinMind TaiwanStockPriceAdj":"FinMind TaiwanStockPrice";
  const lastRev=recent(revenues.filter(r=>num(r.revenue)>0),date,90);
  const yearAgo=lastRev&&revenues.find(r=>Number(r.revenue_year)===Number(lastRev.revenue_year)-1&&
   Number(r.revenue_month)===Number(lastRev.revenue_month));
@@ -155,14 +163,17 @@ export function scoreStock({
   part("融資餘額變化",5,marginScore,marginChange,marginLatest?.date,marginLatest?"FinMind":null,
    "單日融資餘額變化；不代表下一日股價方向")
  ];
- const techNote=tech?"使用FinMind還原價計算技術指標；K線另顯示原始價格":
-  "未取得同交易日且至少61筆完整還原價，不用原價冒充可比技術分析";
+ const techNote=technicalMode==="adjusted"?
+  "採用已對齊交易日的還原收盤價；成交量來自同日原始行情":
+  technicalMode==="raw"?
+  "使用真實未還原日行情計算，可能受除權息、減資或股票分割影響；未冒充還原價":
+  "原始與還原日行情均不足61筆，尚無法計算完整技術指標";
  const riskScore=tech?tech.volatility20<=25&&tech.maxDrawdown60<=10?5:
   tech.volatility20<=35&&tech.maxDrawdown60<=15?4:
   tech.volatility20<=45&&tech.maxDrawdown60<=22?3:1:null;
  const technical=[
   part("均線趨勢",6,tech===null?null:tech.close>tech.ma20&&tech.ma20>tech.ma60?6:tech.close>tech.ma20?4:1,
-   tech?{close:tech.close,ma20:tech.ma20,ma60:tech.ma60}:null,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+   tech?{close:tech.close,ma20:tech.ma20,ma60:tech.ma60}:null,tech?.date,tech?technicalSource:null,techNote),
   part("RSI(14)",3,tech===null?null:tech.rsi>=45&&tech.rsi<=65?3:
    tech.rsi>70||tech.rsi<30?1:2,tech?.rsi,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
   part("MACD",3,tech===null?null:tech.macd>tech.signal?3:1,
@@ -172,7 +183,7 @@ export function scoreStock({
    tech?.volumeRatio,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
   part("波動幅度與60日最大回撤",5,riskScore,tech?
    {annualizedVolatility20Pct:tech.volatility20,maxDrawdown60Pct:tech.maxDrawdown60}:null,
-   tech?.date,"FinMind TaiwanStockPriceAdj",
+   tech?.date,tech?technicalSource:null,
    tech?"20日報酬波動年化與60日歷史峰值回撤；僅風險觀察，不預測未來":techNote)
  ];
  const groups={fundamental,news,chips,technical};
@@ -183,6 +194,12 @@ export function scoreStock({
  const observedPoints=round(Object.values(parts).reduce((sum,p)=>sum+p.earned,0));
  return {score:coveredPoints===100?observedPoints:null,observedPoints,coveredPoints,
   coveragePercent:coveredPoints,complete:coveredPoints===100,parts,indicators:tech,
-  latestPriceDate:date,metrics:{quality,perPercentile,per:currentPER?num(currentPER.per):null},
+  latestPriceDate:date,technicalMode,
+  metrics:{quality,perPercentile,per:currentPER?num(currentPER.per):null},
+  diagnostics:{
+    technical:{mode:technicalMode,rawCount:raw.length,rawDate:date,
+      adjustedCount:adj.length,adjustedDate:adj.at(-1)?.date??null,
+      alignedCount:aligned.length,reason:techNote}
+  },
   disclaimer:"資料涵蓋率與實際得分分開；缺資料不補0分、不重新加權，分數不代表未來報酬。"};
 }
