@@ -24,7 +24,7 @@ export function selectDailyLeaders(records,{marketDate,candidateCount=0}={}){
  const valid=(Array.isArray(records)?records:[]).filter(r=>r&&r.verification?.state==="一致" &&
   r.finmind?.date===marketDate&&r.official?.date===marketDate&&
   r.score?.coveredPoints>0&&Number.isFinite(r.score.observedPoints)&&
-  String(r.stock||"").length===4&&[...String(r.stock)].every(ch=>ch>="0"&&ch<="9")&&!(r.sourceWarnings||[]).length);
+  String(r.stock||"").length===4&&[...String(r.stock)].every(ch=>ch>="0"&&ch<="9"));
  const groups=new Map();
  for(const r of valid){const key=coverageSignature(r.score);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}
  // 權重覆蓋內容相同才可以比較；候選樣本不足五檔時，寧缺勿補。
