@@ -153,17 +153,28 @@ async function performScheduled(controller,env){
  const summary=await getMarketSummary(db);
  if(summary.total===0){
   const universe=await scanOfficialUniverse();
-  if(universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable)){
-   const saved=await saveUniverse(db,universe);
-   console.info("[market-sync] universe saved",JSON.stringify({
-    saved,marketDate:universe.marketDate,markets:universe.markets
-   }));
-  }else{
-   console.warn("[market-sync] universe skipped: both exchange registries required",JSON.stringify({
-    marketCount:universe.marketCount,marketDate:universe.marketDate,
-    markets:universe.markets,warnings:universe.warnings
-   }));
+  const valid=universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable);
+  let saved=0;
+  let status=valid?"saved":"skipped_missing_official_registry";
+  let lastError=null;
+  if(valid){
+   try{
+    saved=await saveUniverse(db,universe);
+   }catch(error){
+    status="write_failed";
+    lastError=String(error?.message||error).slice(0,300);
+    console.error("[market-sync] universe write failed",lastError);
+   }
   }
+  const attempt={at:new Date().toISOString(),status,saved,
+   marketCount:universe.marketCount,marketDate:universe.marketDate,
+   markets:universe.markets.map(x=>({market:x.market,date:x.date,total:x.total,
+    registryAvailable:x.registryAvailable,registryError:x.registryError||null})),
+   warnings:universe.warnings,lastError};
+  await db.prepare("INSERT INTO sync_state(key,value,updated_at) VALUES ('universe_last_attempt',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+   .bind(JSON.stringify(attempt),attempt.at).run();
+  if(status==="saved")console.info("[market-sync] universe saved",JSON.stringify(attempt));
+  else console.warn("[market-sync] universe skipped",JSON.stringify(attempt));
   return;
  }
  if(!env.FINMIND_TOKEN)return;
