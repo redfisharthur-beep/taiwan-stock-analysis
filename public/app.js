@@ -1,3 +1,4 @@
+import {setupKline} from "./chart.js";
 const byId = id => document.getElementById(id);
 const node = (tag, text, cls) => { const e=document.createElement(tag); e.textContent=String(text??""); if(cls)e.className=cls; return e; };
 let current=null;
@@ -15,7 +16,8 @@ function partCard(title,group){
 function source(parent,label,url){const r=node("div",label+" ","source-line");
  if(url){const link=node("a","開啟原始來源 ↗");link.href=url;link.target="_blank";link.rel="noopener noreferrer";r.append(link);}parent.append(r);}
 function present(d){
- current=d;byId("result").hidden=false;byId("market").textContent=d.market+" · "+d.stock;
+ current=d;byId("result").hidden=false;
+ setupKline(byId("kline"),byId("kline-tip"),d.candles||[]);byId("market").textContent=d.market+" · "+d.stock;
  byId("stock-name").textContent=(d.name||"股票")+" "+d.stock;byId("asof").textContent="系統查詢時間（UTC） "+d.asOf;
  byId("close").textContent=d.finmind.close.toLocaleString("zh-TW");byId("price-date").textContent="行情日期 "+d.finmind.date;
  info(byId("verify"),"官方行情比對："+d.verification.state+"。"+d.verification.note,d.verification.state==="不一致");
@@ -40,7 +42,7 @@ byId("search").addEventListener("submit",async event=>{
  const button=byId("submit");button.disabled=true;byId("status").textContent="正在核對資料…";byId("result").hidden=true;
  try{const res=await fetch("/api/analyze?stock="+encodeURIComponent(stock));const data=await res.json();
  if(!res.ok)throw Error([data.error,...(data.warnings||[])].filter(Boolean).join("；"));
- present(data);byId("status").textContent="資料已載入。請查看實際行情日期、資料覆蓋率及官方核對狀態。";
+ present(data);refreshDaily();byId("status").textContent="資料已載入。請查看實際行情日期、資料覆蓋率及官方核對狀態。";
  }catch(err){byId("status").textContent="查詢未完成："+err.message;}finally{button.disabled=false;}
 });
 byId("compare-btn").addEventListener("click",()=>{
@@ -53,3 +55,45 @@ byId("compare-btn").addEventListener("click",()=>{
 });
 const prefill=new URLSearchParams(location.search).get("stock");
 if(prefill&&/^\d{4,6}$/.test(prefill)){byId("ticker").value=prefill;byId("search").requestSubmit();}
+
+async function refreshDaily(){
+ const status=byId("daily-status"),list=byId("daily-list"),stamp=byId("daily-date");
+ try{
+  const res=await fetch("/api/top5",{headers:{"Accept":"application/json"}});
+  if(!res.ok)throw Error("資料服務回傳 "+res.status);
+  const d=await res.json();list.replaceChildren();
+  stamp.textContent=d.marketDate?"行情 "+d.marketDate:"尚無有效行情日";
+  if(!d.ready){status.textContent=d.reason||"排行榜資料庫尚未設定。";return;}
+  if(!d.stocks?.length){status.textContent=d.reason||"無足夠且同交易日、相同覆蓋率的股票可供比較。";return;}
+  status.textContent=(d.published?"全市場經驗證完整評分；":"已查詢股票的同日可比較樣本；非全市場前五、非完整100分。")+
+   "比較樣本 "+d.verifiedComparableCount+" 檔；已收錄查詢資料 "+d.analyzedCount+" 檔；"+
+   (d.published?"四大面向皆已覆蓋。":"共同已涵蓋權重 "+d.coveragePoints+"/100。");
+  for(const s of d.stocks){
+    const card=node("article",null,"daily-item"),rank=node("div","#"+s.rank,"daily-rank"),
+      body=node("div"),title=node("div",(s.name||"股票")+" "+s.stock,"daily-name"),
+      sub=node("div",(s.market||"市場未明")+" · 行情日期 "+s.date,"daily-sub"),
+      points=node("div",null,"daily-parts"),score=node("div",null,"daily-score");
+    for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]]){
+      const p=s.parts[key];points.append(node("span",label+" "+p.earned+" / "+p.max+"（涵蓋 "+p.covered+"）"));
+    }
+    body.append(title,sub,points);
+    if(s.reasons?.length){for(const reason of s.reasons.slice(0,4)){
+      let value=reason.value===null?"":typeof reason.value==="object"?JSON.stringify(reason.value):String(reason.value);
+      body.append(node("p",reason.name+"："+value+"；依已公布的研究規則獲 "+reason.score+"/"+reason.max+" 分。"+reason.note+"（"+(reason.source||"來源未明")+"，"+(reason.date||"日期未明")+"）","daily-reason"));
+    }}else body.append(node("p","目前沒有完成驗證的高分理由可列；請先補齊資料。","daily-reason"));
+    score.append(node("span",s.score===null?s.observedPoints+" 分":s.score+" / 100"),
+      node("small",s.score===null?"子項小計 · 涵蓋 "+s.coveredPoints+"/100":"完整綜合得分"));
+    const action=node("button","查看完整明細 →","daily-action");action.type="button";action.addEventListener("click",()=>{
+      byId("ticker").value=s.stock;byId("search").requestSubmit();
+      byId("search").scrollIntoView({behavior:"smooth",block:"start"});
+    });
+    score.append(action);card.append(rank,body,score);list.append(card);
+  }
+ }catch(err){stamp.textContent="資料未取得";status.textContent="無法取得當日榜單："+err.message;list.replaceChildren();}
+}
+refreshDaily();
+let lastWidth=0;
+window.addEventListener("resize",()=>{
+ const width=Math.round(byId("kline").getBoundingClientRect().width||0);
+ if(width!==lastWidth&&current&&byId("result").hidden===false){lastWidth=width;setupKline(byId("kline"),byId("kline-tip"),current.candles||[]);}
+});
