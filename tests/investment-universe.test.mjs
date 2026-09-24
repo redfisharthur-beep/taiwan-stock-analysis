@@ -34,21 +34,13 @@ async function mockWorker(path){
    {waitUntil:()=>{}});
  }finally{globalThis.fetch=originalFetch;globalThis.caches=originalCache}
 }
-test("whole-price observations include listed, OTC and both-market ETF without P/E scores for funds",async()=>{
+test("homepage never invents a full-market top five without persisted source-verified scores",async()=>{
  const response=await mockWorker("/api/observations");
  assert.equal(response.status,200);
  const data=await response.json();
- assert.equal(data.priceCeiling,null);
- assert.ok(data.stocks.some(x=>x.stock==="1002"&&x.close>500&&x.market==="上市"));
- assert.ok(data.stocks.some(x=>x.stock==="2001"&&x.market==="上櫃"));
- for(const code of ["0050","00980T"]){
-  const row=data.stocks.find(x=>x.stock===code);
-  assert.equal(row.kind,"etf");
-  assert.equal(row.screening.checks.length,0);
-  assert.equal(row.financials,undefined);
-  assert.equal(row.valuationFlag,"not_applicable");
- }
- assert.equal(data.stocks.some(x=>x.stock==="02001"),false);
+ assert.equal(data.ready,false);
+ assert.deepEqual(data.stocks,[]);
+ assert.match(data.reason,/資料庫/);
 });
 test("ETF lookup returns independent fund price/technical model even without FinMind/D1",async()=>{
  const response=await mockWorker("/api/analyze?stock=0050");
