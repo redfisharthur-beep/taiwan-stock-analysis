@@ -159,6 +159,32 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null,s
    }
  }
 
+ // Licensed-provider industry evidence is optional. Require two independent
+ // original publishers reporting the SAME identified sector event. Merely having
+ // any two finance headlines about a stock must never produce an industry score.
+ const sector=articles.filter(a=>a.stock===stock&&a.eventType==="industry_event"&&
+  typeof a.industryEventId==="string"&&a.industryEventId.length>=5&&a.industryEventId.length<=120&&
+  PUBLISHERS.has(a.publisher)&&a.originalPublisher===a.publisher&&
+  typeof a.url==="string"&&a.url.startsWith("https://")&&publisherUrlMatches(a)&&
+  typeof a.title==="string"&&a.title.length>=10&&
+  /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(a.publishedAt||"")&&
+  (Date.parse(marketDate+"T00:00:00Z")-Date.parse(a.publishedAt+"T00:00:00Z"))/86400000<=14);
+ const bySectorEvent=new Map();
+ for(const article of sector){
+  if(!bySectorEvent.has(article.industryEventId))bySectorEvent.set(article.industryEventId,[]);
+  bySectorEvent.get(article.industryEventId).push(article);
+ }
+ const confirmedSector=[...bySectorEvent.values()].map(group=>
+  [...new Map(group.map(a=>[a.publisher,a])).values()])
+  .find(group=>group.length>=2&&
+   Math.max(...group.map(a=>Date.parse(a.publishedAt)))-
+   Math.min(...group.map(a=>Date.parse(a.publishedAt)))<=3*86400000);
+ if(confirmedSector){
+  const date=confirmedSector.map(x=>x.publishedAt).sort().at(-1);
+  result.items=[...(result.items||[]),{name:"產業事件",max:2,score:2,
+   value:confirmedSector[0].title,date,source:"授權新聞：兩個獨立原始媒體",
+   note:"兩個原始媒體報導同一有明確事件 ID 的產業事件；僅表示資料核對，不代表股價方向"}];
+ }
  return {...result,discovery,checked:[
   {name:"公開資訊觀測站",status:official.error?"unavailable":"checked",url:"https://mops.twse.com.tw/"},
   {name:"臺灣證券交易所",status:market==="上市"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.listed},
