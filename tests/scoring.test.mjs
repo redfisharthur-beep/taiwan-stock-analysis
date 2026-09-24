@@ -42,3 +42,31 @@ test("official price cross-check remains same-date only",()=>{
  assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-23",close:100}]).state,"日期不一致");
  assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-24",close:101}]).state,"不一致");
 });
+
+test("five-day institutional flow uses real prior reported sessions when current close arrives first",()=>{
+ const trading=["2026-09-16","2026-09-17","2026-09-18","2026-09-21","2026-09-22","2026-09-23"];
+ const prices=trading.map(date=>({date,close:100,volume:1000}));
+ const institutional=trading.slice(0,-1).map(date=>({date,name:"Foreign_Investor",buy:600,sell:500}));
+ const scored=scoreStock({prices,institutional});
+ const item=scored.parts.chips.items.find(x=>x.name==="法人近五日淨買賣／成交量");
+ assert.equal(item.score,6);
+ assert.equal(item.date,"2026-09-22");
+ assert.equal(item.value.netShares,500);
+ assert.equal(item.value.delayedSessions,1);
+ const missing=scoreStock({prices,institutional:institutional.filter(x=>x.date!=="2026-09-18")});
+ assert.equal(missing.parts.chips.items.find(x=>x.name==="法人近五日淨買賣／成交量").score,null);
+});
+test("financial quality is scored from real same-period operating cash/pretax and dated debt",()=>{
+ const prices=[{date:"2026-09-24",close:100,volume:1000}];
+ const cashFlows=[{date:"2026-06-30",type:"CashFlowsFromOperatingActivities",value:150},
+  {date:"2026-06-30",type:"NetIncomeBeforeTax",value:100}];
+ const balance=[{date:"2026-06-30",type:"TotalLiabilities",value:400},
+  {date:"2026-06-30",type:"TotalAssets",value:1000}];
+ const quality=scoreStock({prices,cashFlows,balance}).parts.fundamental.items.find(x=>x.name==="獲利品質與負債");
+ assert.equal(quality.score,9);
+ assert.equal(quality.value.debtRatioPct,40);
+ assert.equal(quality.value.cashConversion,1.5);
+ const missingPretax=scoreStock({prices,cashFlows:cashFlows.slice(0,1),balance}).parts.fundamental.items.find(x=>x.name==="獲利品質與負債");
+ assert.equal(missingPretax.score,null);
+ assert.equal(missingPretax.value.debtRatioPct,40);
+});
