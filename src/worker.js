@@ -144,32 +144,32 @@ async function performScheduled(controller,env){
  }
  const db=env.MARKET_DB,cron=controller.cron||"";
  const summary=await getMarketSummary(db);
- // A missing registry must not deadlock the initial inventory: verified official
- // exchange quotes can seed a clearly flagged partial inventory for research.
- // Keep retrying full registry discovery at the daily refresh.
- if(cron==="0 11 * * MON-FRI"||summary.total===0){
-  let universe=null,saved=0,lastError=null;
-  let status="scan_failed";
+ // A blocked OTC API must not leave a healthy TWSE inventory permanently empty.
+ // Save only real official quotes, label any missing market explicitly, and retry
+ // the incomplete market without requiring Cloudflare dashboard access.
+ const lastScan=Date.parse(summary.lastUniverseAttempt?.at||"");
+ const missingMarket=(summary.markets||[]).length!==2;
+ const refreshPartial=missingMarket&&summary.total>0&&
+  (!Number.isFinite(lastScan)||Date.now()-lastScan>=30*60000);
+ if(cron==="0 11 * * MON-FRI"||summary.total===0||refreshPartial){
+  let universe=null,saved=0,lastError=null,status="scan_failed";
   try{
    universe=await scanOfficialUniverse();
-   const hasBothMarkets=universe.marketCount===2&&
-    universe.markets.every(x=>x.date&&x.total>0);
-   if(!hasBothMarkets)status="skipped_missing_official_quotes";
+   const usable=universe.markets.some(x=>x.date&&x.total>0);
+   if(!usable)status="skipped_missing_official_quotes";
    else{
     try{
      saved=await saveUniverse(db,universe);
-     status=universe.markets.every(x=>x.registryAvailable)?
-      "saved":"saved_quote_fallback_registry_pending";
-    }catch(error){
-     status="write_failed";
-     lastError=String(error?.message||error).slice(0,300);
-    }
+     status=universe.marketCount!==2?"saved_partial_market":
+      universe.markets.every(x=>x.registryAvailable)?"saved":"saved_quote_fallback_registry_pending";
+    }catch(error){status="write_failed";lastError=String(error?.message||error).slice(0,300);}
    }
   }catch(error){lastError=String(error?.message||error).slice(0,300)}
   const attempt={at:new Date().toISOString(),status,saved,
    marketCount:universe?.marketCount??0,marketDate:universe?.marketDate??null,
    markets:(universe?.markets||[]).map(x=>({market:x.market,date:x.date,total:x.total,
-    registryAvailable:x.registryAvailable,registryError:x.registryError||null})),
+    registryAvailable:x.registryAvailable,registryError:x.registryError||null,
+    quoteUrl:x.quoteUrl||null})),
    warnings:universe?.warnings||[],lastError};
   await db.prepare("INSERT INTO sync_state(key,value,updated_at) VALUES ('universe_last_attempt',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
    .bind(JSON.stringify(attempt),attempt.at).run();
@@ -231,7 +231,8 @@ async function computeDailyObservations(env){
    profiles:summary.currentProfiles,fullCoverage:summary.fullCoverage,
    fullETFTechnical:summary.fullETFTechnical,scannedAll:allComparable},
   reason:!summary.total?emptyReason:
-   !allComparable?"僅列已核實且適用資料完整的標的；仍有股票或 ETF 尚未評分，因此不是全市場最終前五名。":
+   !allComparable?"僅列已核實且適用資料完整的標的；"+
+    (summary.markets?.length!==2?"有市場行情未取得，僅呈現已同步市場，暫非全市場前五名。":"仍有股票或 ETF 尚未評分，因此不是全市場最終前五名。"):
    stocks.length<5?"目前資料符合完整評分條件的標的不足五檔。":
    "股票為公司40／30／30總分，ETF為獨立技術30分折算百分比；兩類評分依據不同。"};
 }
@@ -241,7 +242,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"verified_100_coverage_full_market_scores",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.20.1",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.21.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -287,7 +288,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.20.1");
+  const key=new Request(url.origin+"/api/observations?model=0.21.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
