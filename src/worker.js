@@ -17,7 +17,8 @@ async function analyze(stock,env,override=null,shared=null){
   ["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35],
   ["TaiwanStockPER",410],["TaiwanStockCashFlowsStatement",600],["TaiwanStockMarginPurchaseShortSale",30],
   ["TaiwanStockPriceAdj",410],["TaiwanStockBalanceSheet",240]];
- const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,stock,name,days)));
+ const data=await Promise.allSettled(datasets.map(([name,days])=>shared?.bulk&&name==="TaiwanStockMarginPurchaseShortSale"?
+   Promise.resolve([]):finmind(env,stock,name,days)));
  const warnings=data.flatMap((r,i)=>r.status==="rejected"?
   [datasets[i][0]+"："+String(r.reason?.message||"取得失敗")]:[]);
  if(data[0].status==="rejected")return reply({error:"FinMind 歷史行情取得失敗，已停止評分。",warnings},503);
@@ -28,9 +29,11 @@ async function analyze(stock,env,override=null,shared=null){
    const records=r.status==="fulfilled"?r.value:[];
    const dates=records.map(x=>String(x?.date||"")).filter(x=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x));
    const latestDate=dates.sort().at(-1)||null;
-   return {name,status:r.status==="rejected"?"error":records.length?"ok":"empty",
+   return {name,status:shared?.bulk&&name==="TaiwanStockMarginPurchaseShortSale"?"skipped":
+      r.status==="rejected"?"error":records.length?"ok":"empty",
      records:records.length,latestDate,
      message:r.status==="rejected"?String(r.reason?.message||"資料來源錯誤"):
+       shared?.bulk&&name==="TaiwanStockMarginPurchaseShortSale"?"首頁免費額度略過融資融券逐檔資料；請點入個股核對":
        records.length?"已取得資料":"來源成功回應，但此股票／期間沒有資料"};
  });
  if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings,datasetHealth},404);
@@ -95,7 +98,7 @@ async function computeTopFive(env,mode="daily",exclude=[]){
  const universe=await scanOfficialUniverse({priceCeiling:500});
  const candidates=rankUniverseCandidates(universe.stocks.filter(r=>!exclude.includes(r.stock)),mode,5);
  const marketComplete=universe.marketCount===universe.expectedMarketCount&&
-  universe.markets.every(m=>m.date===universe.marketDate);
+  universe.markets.every(m=>m.date===universe.marketDate&&m.registryAvailable);
  const base={ready:candidates.length>0,marketDate:universe.marketDate,
   asOf:new Date().toISOString(),priceCeiling:500,
   universe:{total:universe.universeCount,sameDate:universe.sameDateCount,
@@ -151,7 +154,7 @@ async function computeTopFive(env,mode="daily",exclude=[]){
  return {...base,stocks,analyzedCount:investigated.size,
   strictCount:stocks.filter(s=>s.passedAll).length,
   reason:marketComplete?
-   "已讀取兩市場當日四位數股票行情，對符合價格與成交條件者逐檔進行官方初篩；僅名單內股票嘗試九項 FinMind 深入核對。":
+   "已讀取兩市場公司名冊及當日行情，對符合價格與成交條件者逐檔初篩；僅名單內股票嘗試八項 FinMind 深入核對。":
    "當日兩市場行情未同時齊備；目前名單僅根據可用市場初篩，不可視為完整市場比較。"};
 }
 export default {async fetch(request,env,ctx){
