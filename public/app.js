@@ -142,7 +142,7 @@ function showUniverse(data){
  if(!u){target.textContent="尚未取得兩市場掃描統計。";target.classList.add("warn");return;}
  target.classList.toggle("warn",!u.marketComplete);
  target.textContent="官方行情涵蓋 "+showNumber(u.total)+" 檔四位數股票｜同日有效價格 "+showNumber(u.priced)+
-  " 檔｜500 元以下且有成交 "+showNumber(u.tradable)+" 檔｜高於 500 元排除 "+showNumber(u.overCeiling)+
+  " 檔｜低於 500 元且有成交 "+showNumber(u.tradable)+" 檔｜500 元以上排除 "+showNumber(u.overCeiling)+
   " 檔。"+(u.marketComplete?"上市、上櫃已取得同一交易日資料。":"兩市場尚未同日齊備；名單並非完整市場比較。")+
   (u.missingPrice?" 無有效收盤價 "+showNumber(u.missingPrice)+" 檔不參與排序。":"");
 }
@@ -207,7 +207,7 @@ async function refreshDaily(){
   stamp.textContent=d.marketDate||"尚無日期";showUniverse(d);
   const rows=d.stocks||[];
   status.textContent=rows.length?
-   "已從 "+showNumber(d.universe?.tradable||0)+" 檔價格不超過 500 元且有成交的股票初篩，列出 "+
+   "已從 "+showNumber(d.universe?.tradable||0)+" 檔價格低於 500 元且有成交的股票初篩，列出 "+
    rows.length+" 檔；其中 "+(d.analyzedCount||0)+" 檔取得深入分析回應。"+
    " 這不是全市場每一檔的完整財報與技術排名。":
    d.reason||"目前無法建立每日名單。";
