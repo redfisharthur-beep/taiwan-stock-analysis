@@ -90,8 +90,36 @@ export function scoreNews(events){
      note:"有不同原始採訪或發稿來源；同一篇轉載不重複計數"}],
    events,sourceCount:current.evidence.length+1};
 }
-export async function researchNews(stock,marketDate,market,env,prefetched=null){
+// Public news-discovery metadata only (headline, publisher URL and timestamp).
+// Do not treat search matches as verified facts, independent reporting or a sentiment score.
+export async function discoverNews(stockName,marketDate,fetcher=fetch){
+ const name=String(stockName||"").trim().slice(0,24);
+ if(name.length<2||!marketDate)return {articles:[],status:"missing_company_name"};
+ const url=new URL("https://api.gdeltproject.org/api/v2/doc/doc");
+ url.searchParams.set("query",'"'+name.replaceAll('"',"")+'"');
+ url.searchParams.set("mode","artlist");url.searchParams.set("format","json");
+ url.searchParams.set("timespan","1week");url.searchParams.set("maxrecords","20");
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),6500);
+ try{
+  const resp=await fetcher(url.toString(),{signal:ctrl.signal,headers:{Accept:"application/json"}});
+  if(!resp.ok)return {articles:[],status:"unavailable"};
+  const bytes=await resp.arrayBuffer();if(bytes.byteLength>400000)return {articles:[],status:"unavailable"};
+  const payload=JSON.parse(new TextDecoder().decode(bytes));
+  const list=Array.isArray(payload.articles)?payload.articles:[];
+  const items=list.filter(a=>typeof a.url==="string"&&a.url.startsWith("https://")&&
+    typeof a.title==="string"&&a.title.length>=10&&typeof a.seendate==="string")
+   .map(a=>({title:a.title.slice(0,180),url:a.url,publisher:String(a.domain||"").slice(0,90),
+    date:a.seendate.slice(0,4)+"-"+a.seendate.slice(4,6)+"-"+a.seendate.slice(6,8),
+    verification:"not_independently_verified"}))
+   .filter(a=>a.date<=marketDate&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(a.date)).slice(0,10);
+  return {articles:items,status:items.length?"discovered":"no_matches"};
+ }catch{return {articles:[],status:"unavailable"}}
+ finally{clearTimeout(timer)}
+}
+export async function researchNews(stock,marketDate,market,env,prefetched=null,stockName=""){
  const official=await officialNews(stock,marketDate,market,prefetched);
+ const discovery=env.DISABLE_NEWS_DISCOVERY==="true"?{articles:[],status:"skipped_in_bulk"}:
+  await discoverNews(stockName,marketDate);
  let articles=[],feedError=null;
  if(env.NEWS_FEED_URL&&env.NEWS_FEED_TOKEN){
   try{const src=new URL(env.NEWS_FEED_URL);
@@ -120,7 +148,7 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null){
    }
  }
 
- return {...result,checked:[
+ return {...result,discovery,checked:[
   {name:"公開資訊觀測站",status:official.error?"unavailable":"checked",url:"https://mops.twse.com.tw/"},
   {name:"臺灣證券交易所",status:market==="上市"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.listed},
   {name:"證券櫃檯買賣中心",status:market==="上櫃"?(official.error?"unavailable":"checked"):"other_market",url:OFFICIAL.otc},
