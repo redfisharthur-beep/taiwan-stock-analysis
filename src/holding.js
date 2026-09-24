@@ -58,6 +58,54 @@ export async function getHoldingRows(fetcher=fetch){
   return data;
  }finally{clearTimeout(timer)}
 }
+/**
+ * Historical TDCC 1-5 weekly snapshots, re-published under the government open-data
+ * license. This is a third-party mirror, not a direct official TDCC historic API.
+ * Validate date, stock, four distinct tiers and three consecutive reporting weeks.
+ */
+export async function archivedHoldingForStock(stock,marketDate,fetcher=fetch){
+ if(!/^[0-9]{4}$/.test(stock)||!/^\\d{4}-\\d{2}-\\d{2}$/.test(marketDate||""))return null;
+ const base="https://api.github.com/repos/wirelessr/tdcc-opendata-archive/contents/snapshots/";
+ const archive="https://raw.githubusercontent.com/wirelessr/tdcc-opendata-archive/main/snapshots/";
+ const year=marketDate.slice(0,4);
+ const timer=ms=>{const c=new AbortController(),id=setTimeout(()=>c.abort(),ms);
+  return {signal:c.signal,stop:()=>clearTimeout(id)}};
+ let index;
+ const catalog=timer(6500);
+ try{
+  const response=await fetcher(base+year,{headers:{Accept:"application/vnd.github+json"},signal:catalog.signal});
+  if(!response.ok)return null;
+  index=await response.json();
+ }catch{return null}finally{catalog.stop()}
+ if(!Array.isArray(index))return null;
+ const dates=index.map(x=>String(x.name||"").replace(/\\.csv$/,"")).filter(x=>
+  /^\\d{4}-\\d{2}-\\d{2}$/.test(x)&&x<=marketDate).sort().slice(-3);
+ if(dates.length!==3)return null;
+ const weekGaps=dates.slice(1).map((d,i)=>(Date.parse(d)-Date.parse(dates[i]))/86400000);
+ if(weekGaps.some(days=>days<5||days>10))return null;
+ const selected=await Promise.all(dates.map(async date=>{
+  const req=timer(6500);
+  try{
+   const url=archive+year+"/"+date+".csv",response=await fetcher(url,{signal:req.signal});
+   if(!response.ok||Number(response.headers?.get?.("content-length")||0)>4000000)return [];
+   const bytes=await response.arrayBuffer();
+   if(bytes.byteLength>4000000)return [];
+   const csv=new TextDecoder("utf-8").decode(bytes).replace(/^\\uFEFF/,"");
+   const lines=csv.split(/\\r?\\n/);
+   const matching=lines.slice(1).filter(line=>line.split(",",2)[1]?.trim()===stock);
+   if(!matching.length)return [];
+   return parseCSV([lines[0],...matching].join("\\n"));
+  }catch{return []}finally{req.stop()}
+ }));
+ const rows=selected.flat();
+ const holding=concentration(rows,stock,marketDate);
+ if(!holding?.trend||holding.trend.weeks.length!==3)return null;
+ // If a source returns old/inconsistent dates, do not accept a manufactured trend.
+ if(dates.some((d,i)=>holding.trend.weeks[i].date!==d))return null;
+ return {...holding,source:"TDCC 開放資料三週公開備份（非官方即時 API）",
+  sourceUrl:"https://github.com/wirelessr/tdcc-opendata-archive",
+  note:"以公眾備份的三期實際 TDCC 開放資料計算，資料由第三方鏡像保存；非即時持股與未來股價預測"};
+}
 export async function holdingForStock(stock,marketDate,rows=null){
  const raw=rows??await getHoldingRows();return concentration(raw,stock,marketDate);
 }
