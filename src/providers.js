@@ -95,14 +95,16 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
  const markets=[
   {market:"上市",source:"TWSE",quoteUrl:"https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
    ratioUrl:"https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL",
+   registryUrl:"https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
    code:"Code",name:"Name",close:"ClosingPrice",turnover:"TradeValue",volume:"TradeVolume"},
   {market:"上櫃",source:"TPEx",quoteUrl:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
    ratioUrl:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis",
+   registryUrl:"https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
    code:"SecuritiesCompanyCode",name:"CompanyName",close:"Close",
    turnover:"TransactionAmount",volume:"TradingShares"}
  ];
  const jobs=await Promise.allSettled(markets.map(async m=>{
-  const [quotes,ratios]=await Promise.allSettled([fetchJSON(m.quoteUrl),fetchJSON(m.ratioUrl)]);
+  const [quotes,ratios,registry]=await Promise.allSettled([fetchJSON(m.quoteUrl),fetchJSON(m.ratioUrl),fetchJSON(m.registryUrl)]);
   if(quotes.status!=="fulfilled"||!Array.isArray(quotes.value)||!quotes.value.length)
    throw Error("官方日行情未取得，不使用另一市場冒充全市場");
   const ratioMap=new Map();
@@ -127,8 +129,30 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
     url:m.quoteUrl,close,date:quoteDate,turnover,volume,
     screen:ratio&&(!ratio.date||ratio.date===quoteDate)?ratio:null});
   }
+  // 公司名冊補足停牌／無當日成交行情者；缺收盤價仍留在母體而不進榜單。
+  let registryAvailable=registry.status==="fulfilled"&&Array.isArray(registry.value)&&registry.value.length>0;
+  let registryTotal=0;
+  if(registryAvailable){
+   const listed=new Map();
+   for(const raw of registry.value){
+    const stock=String(raw.SecuritiesCompanyCode??raw["公司代號"]??raw.Code??"").trim();
+    if(!/^[0-9]{4}$/.test(stock)||stock.startsWith("00"))continue;
+    listed.set(stock,String(raw.CompanyAbbreviation??raw["公司簡稱"]??raw.CompanyName??raw["公司名稱"]??"").trim());
+   }
+   registryTotal=listed.size;
+   if(!registryTotal)registryAvailable=false;
+   else{
+    // 名冊作為股票身分母體：不讓 ETF 或非公司證券污染可排序的全市場名單。
+    const filtered=rows.filter(row=>listed.has(row.stock));
+    const found=new Set(filtered.map(row=>row.stock));
+    for(const [stock,name] of listed)if(!found.has(stock))
+     filtered.push({stock,name,market:m.market,source:m.source,url:m.quoteUrl,
+      close:null,date:null,turnover:null,volume:null,screen:null});
+    rows.length=0;rows.push(...filtered);
+   }
+  }
   const date=rows.map(r=>r.date).filter(Boolean).sort().at(-1)||null;
-  return {market:m.market,date,rows,valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
+  return {market:m.market,date,rows,registryAvailable,registryTotal,valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
    source:m.source,quoteUrl:m.quoteUrl,ratioUrl:m.ratioUrl};
  }));
  const successful=jobs.filter(j=>j.status==="fulfilled").map(j=>j.value);
@@ -140,10 +164,11 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
  const tradable=affordable.filter(r=>r.turnover>0&&r.volume>0);
  const warnings=jobs.flatMap((j,i)=>j.status==="rejected"?
   [markets[i].source+" 官方行情失敗："+String(j.reason?.message||j.reason)]:[]);
- for(const m of successful)if(!m.valuationAvailable)warnings.push(m.source+" 官方估值暫不可用；不以缺值充作零或低估");
+ for(const m of successful){if(!m.valuationAvailable)warnings.push(m.source+" 官方估值暫不可用；不以缺值充作零或低估");
+  if(!m.registryAvailable)warnings.push(m.source+" 公司名冊暫不可用；只以當日行情作已知母體，不宣稱完整公司覆蓋");}
  if(successful.some(m=>m.date!==marketDate))warnings.push("兩市場日期不同，不跨日合併排行");
  return {marketDate,marketCount:successful.length,expectedMarketCount:2,
-  markets:successful.map(m=>({market:m.market,date:m.date,total:m.rows.length,
+  markets:successful.map(m=>({market:m.market,date:m.date,total:m.rows.length,registryAvailable:m.registryAvailable,
    valuationAvailable:m.valuationAvailable})),warnings,
   universeCount:all.length,sameDateCount:sameDate.length,
   pricedCount:priced.length,affordableCount:affordable.length,
