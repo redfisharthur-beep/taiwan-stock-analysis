@@ -21,7 +21,7 @@ test("newbie homepage uses single daily list and stock keyword query with simple
  assert.match(js,/api\/search\?q=/);
 });
 test("single original stylesheet defines Morandi palettes and rounded light font",()=>{
- assert.match(css,/Zen Maru Gothic/);
+ assert.doesNotMatch(css,/Zen Maru Gothic/);
  for(const selector of [".search{background:","#daily-panel{background:","#financial-panel{background:",
   "#comparison-panel{background:","#chart-panel{background:"]){
   assert.ok(css.includes(selector),selector);
@@ -30,7 +30,7 @@ test("single original stylesheet defines Morandi palettes and rounded light font
  assert.match(css,/body\{[^}]*font-size:19px;[^}]*font-weight:700/);
  assert.match(css,/#ticker\{[^}]*font-size:21px;[^}]*font-weight:700/);
  assert.doesNotMatch(css,/font-weight:(?:300|400|500|600)/);
- assert.match(html,/Zen\+Maru\+Gothic:wght@700/);
+ assert.match(html,/Noto\+Sans\+TC:wght@400;500;600;700;800/);
 });
 test("Cloudflare cron weekday names cannot unintentionally include Sunday",()=>{
  assert.deepEqual(wrangler.triggers.crons,
@@ -56,16 +56,16 @@ test("requested long boilerplate is absent from both HTML and stock-card rendere
 });
 
 test("stock research shows observed points separately from coverage and splits EPS/Yoy into rows",()=>{
- assert.match(js,/目前已評得分/);
+ assert.match(js,/基本面/);
  assert.match(js,/資料涵蓋/);
  assert.match(js,/綜合分數/);
- assert.match(js,/尚無完整資料/);
- assert.match(js,/const summaryLines=item=>/);
- assert.ok(js.includes('item.name+"："+key+" "'));
- assert.match(js,/score-highlight-line/);
- assert.match(css,/\.score-highlight-line\{/);
+ assert.match(js,/資料未達100%/);
+ assert.match(js,/const metricDetails=item=>/);
+ assert.match(js,/case "EPS 與去年同季":/);
+ assert.match(js,/score-metric/);
+ assert.match(css,/\.score-metric\{/);
  assert.doesNotMatch(js,/box\.append\(el\("span",label\),el\("strong",display\),\s*el\("small",note\)\)/);
- assert.match(js,/400張以上持股三週趨勢：/);
+ assert.match(js,/400張以上持股三週趨勢/);
  assert.match(js,/近期重點新聞/);
  assert.match(js,/source\.status==="other_market"\|\|source\.status==="not_connected"/);
 });
