@@ -10,7 +10,7 @@ function groupCard(name,part){
  const highlights=part.items.filter(i=>i.score!==null).sort((a,b)=>b.score/b.max-a.score/a.max).slice(0,2);
  box.append(el("p",highlights.length?highlights.map(i=>i.name+"："+fmt(i.value)).join(" · "):"尚無可核對資料","score-highlights"));
  const missing=part.items.filter(i=>i.score===null);
- if(missing.length)box.append(el("p","待補："+missing.map(i=>i.name).join("、"),"muted"));
+ // Unavailable items remain visible with source-level status in expanded details; omit a duplicated pending summary.
  const details=el("details","","score-detail"),summary=el("summary","查看計分明細");details.append(summary);
  for(const item of part.items){
   const row=el("div","","score-row"),label=el("div","","row-head");
@@ -52,23 +52,22 @@ function renderFinancials(d){
   const display=label==="營業現金流"&&typeof value==="number"?
    (value>0?"正值":value<0?"負值":"零")+"（金額詳見來源）":nval(value,unit);
   box.append(el("span",label),el("strong",display),
-   el("small",(date?"資料期："+date+" · ":"")+note));
+   el("small",note));
   target.append(box);
  }
 }
 function renderComparison(d){
  const target=$("compare-list");target.replaceChildren();
  const comp=d.industryComparison;
- $("compare-status").textContent=comp?.industry?
-  "同市場同產業："+comp.industry+"。PR 代表該項原始數值在有效同業樣本中的相對位置，不是買賣分數。":
-  comp?.reason||"目前同產業資料尚未完成入庫，PR 待查。";
+ $("compare-status").textContent=!comp?.items?.length?(comp?.reason||"尚無同業比較資料"):"";
+ $("compare-status").hidden=!!comp?.items?.length;
  if(!comp?.items?.length)return;
  for(const item of comp.items){
   const box=el("div","","compare-item");
   box.append(el("span",item.label),el("strong",nval(item.value,item.unit)));
   if(item.pr!==null&&Number.isFinite(item.pr))box.append(el("span","PR "+item.pr+" · 同業 "+item.sample+" 檔","pill"));
   else box.append(el("small","PR 待查 · 有效同業 "+item.sample+" 檔"));
-  box.append(el("small",(item.date?"資料期："+item.date+" · ":"")+item.note));
+  // Individual dates and methodology remain available in the API, not repeated on every card.
   target.append(box);
  }
 }
@@ -79,15 +78,14 @@ function present(d){
  $("asof").textContent="查詢時間："+new Date(d.asOf).toLocaleString("zh-TW",{timeZone:"Asia/Taipei"});
  $("close").textContent=d.finmind.close.toLocaleString("zh-TW");
  $("price-date").textContent="行情 "+d.finmind.date;
- message($("verify"),d.verification.state==="一致"?"官方與 FinMind 同日價格一致":
-  "行情待核對："+d.verification.state,d.verification.state==="不一致");
+ $("verify").hidden=d.verification?.state==="一致";
+ if(!$("verify").hidden)message($("verify"),"行情來源待核對："+d.verification.state,d.verification.state==="不一致");
  const stats=$("overview");stats.replaceChildren();
  for(const [name,value] of [["綜合分數",d.score.score===null?"未完成":d.score.score+" 分"],
   ["已評子項小計",d.score.observedPoints+" 分"],["資料涵蓋權重",d.score.coveredPoints+" / 100"]]){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
  }
- $("warnings").textContent=d.sourceWarnings.length?"部分來源暫未取得，詳見「資料來源與更新說明」。":
-  d.score?.technicalMode==="raw"?"技術面採未還原日行情；除權息可能影響長期指標。":"";
+ $("warnings").textContent="";$("warnings").hidden=true;
  renderFinancials(d);renderComparison(d);
  setupKline($("kline"),$("kline-tip"),d.candles||[]);
  const parts=$("parts");parts.replaceChildren();
@@ -165,7 +163,7 @@ function present(d){
    status+(dataset.latestDate?" · 最新 "+dataset.latestDate:"")+
    (dataset.status==="ok"?"":" · "+dataset.message),"muted"));
  }
- if(d.missingMetrics?.length)health.append(el("p","尚待完成："+d.missingMetrics.map(x=>x.name).join("、"),"muted"));
+ // Each unavailable input remains listed in its own analysis card and source diagnostics.
  source(sources,"FinMind · "+d.finmind.date,"https://finmindtrade.com/");
  if(d.official)source(sources,d.official.source+" · "+(d.official.date||"日期未提供"),d.official.url);
  source(sources,"公開資訊觀測站（事件須核實才計分）",d.links.mops);
@@ -259,12 +257,10 @@ function renderStockCard(stock){
    "｜EPS "+showMetric(f.eps," 元")+"｜營業現金流 "+(f.operatingCashFlow===null?"待查":f.operatingCashFlow>0?"為正":f.operatingCashFlow===0?"持平":"為負")+
    "｜負債比 "+showMetric(f.debtRatioPct,"%"),"daily-reason");
   body.append(summary);
- }else body.append(el("p","財報尚待核對，不能只憑低本益比判斷價值。","daily-reason"));
+ }
  addChecks(body,stock.checks||[]);
- if(stock.valuationFlag!=="undervalued"&&stock.valuationNote)
-  body.append(el("p",stock.valuationNote,"daily-reason"));
- right.append(el("strong",showMetric(stock.close," 元")),
-  el("small",stock.detailVerified?"資料已交叉核對":"個股詳細資料待補"));
+ // A missing valuation flag is never replaced with an unsupported positive label.
+ right.append(el("strong",showMetric(stock.close," 元")));
  const button=el("button","分析","daily-action");
  button.type="button";
  button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
@@ -280,9 +276,7 @@ async function refreshDaily(){
   const rows=d.stocks||[];
   if(!rows.length){status.textContent=d.reason||"暫無符合價格與成交條件的股票。";status.hidden=false;return;}
   for(const stock of rows)list.append(renderStockCard(stock));
-  if(!d.universe?.marketComplete){
-   status.textContent="部分市場或公司名冊資料尚未齊備；請以個股來源為準。";status.hidden=false;
-  }
+  // Incomplete official feeds remain in API diagnostics; do not repeat long boilerplate above cards.
  }catch(error){status.textContent="每日觀察暫時無法更新："+error.message;status.hidden=false;}
 }
 const hero=$("hero-image");hero.addEventListener("load",()=>{
