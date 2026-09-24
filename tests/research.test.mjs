@@ -2,6 +2,7 @@ import test from "node:test";import assert from "node:assert/strict";
 import {concentration,archivedHoldingForStock} from "../src/holding.js";
 import {eventKind,parseDisclosures,corroborate,scoreNews,researchNews} from "../src/news.js";
 import {assessUndervaluation} from "../src/value.js";
+import {scoreStock} from "../src/scoring.js";
 function weekly(date,largePct=10){
  return Array.from({length:17},(_,i)=>({"資料日期":date,"證券代號":"2330","持股分級":String(i+1),
  "股數":String(i+1===17?100000000:2000+i*100),"占集保庫存數比例%":String(i>=11&&i<=14?largePct:1)}));
@@ -90,4 +91,28 @@ test("archived official-origin TDCC records reconstruct real three-week holdings
  assert.equal(result.trend.risingWeeks,2);
  assert.match(result.source,/第三方|公開備份/);
  assert.equal(await archivedHoldingForStock("2317","2026-09-24",mock),null);
+});
+
+test("industry event requires a licensed feed and two original publishers matching one documented event ID",async()=>{
+ const original=globalThis.fetch;
+ const event={stock:"2330",eventType:"industry_event",
+  industryEventId:"semiconductors-20260924-1",title:"半導體產業政策變動與市場報導",
+  publishedAt:"2026-09-24"};
+ const a={...event,publisher:"中央社",originalPublisher:"中央社",
+  url:"https://www.cna.com.tw/news/afe/202609240001.aspx"};
+ const b={...event,publisher:"Reuters 路透社",originalPublisher:"Reuters 路透社",
+  url:"https://www.reuters.com/world/asia-pacific/example-2026-09-24/"};
+ let articles=[a,b];
+ globalThis.fetch=async()=>({ok:true,headers:{get:()=>null},
+  arrayBuffer:async()=>new TextEncoder().encode(JSON.stringify({articles})).buffer});
+ try{
+  const env={NEWS_FEED_URL:"https://feed.example.com/articles",NEWS_FEED_TOKEN:"test",DISABLE_NEWS_DISCOVERY:"true"};
+  const result=await researchNews("2330","2026-09-24","上市",env,{rows:[],error:null},"台積電");
+  assert.equal(result.items.find(x=>x.name==="產業事件").score,2);
+  const scored=scoreStock({prices:[{date:"2026-09-24",close:100,volume:1000}],newsResearch:result});
+  assert.equal(scored.parts.news.items.find(x=>x.name==="產業事件").score,2);
+  articles=[a];
+  const insufficient=await researchNews("2330","2026-09-24","上市",env,{rows:[],error:null},"台積電");
+  assert.equal(insufficient.items.find(x=>x.name==="產業事件"),undefined);
+ }finally{globalThis.fetch=original}
 });
