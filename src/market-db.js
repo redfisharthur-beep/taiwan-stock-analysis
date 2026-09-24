@@ -60,25 +60,6 @@ export async function getSavedProfile(db,stock){
   score:parse(r.score_json),metrics:parse(r.metrics_json),
   candles:parse(r.candles_json),datasetHealth:parse(r.dataset_health_json)};
 }
-export async function getDailySaved(db,limit=15){
- const date=(await db.prepare("SELECT MAX(quote_date) AS latest FROM companies").first())?.latest;
- if(!date)return {marketDate:null,stocks:[],source:"database"};
- const result=await db.prepare(`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date AS date,
- c.turnover,c.volume,c.per,c.pbr,c.dividend_yield AS dividendYield,c.valuation_date AS valuationDate,
- p.market_date AS profileDate,p.metrics_json,p.score_json,p.financial_period,p.technical_date,p.chips_date
- FROM companies c LEFT JOIN market_profiles p ON p.stock=c.stock
- WHERE c.quote_date=? AND c.close>0 AND c.turnover>0 AND c.volume>0
- ORDER BY (CASE WHEN c.per>0 AND c.per<=12 THEN 4 WHEN c.per>0 AND c.per<=18 THEN 3 WHEN c.per>0 AND c.per<=25 THEN 2 WHEN c.per>0 THEN 1 ELSE 0 END)
- +(CASE WHEN c.pbr>0 AND c.pbr<=1.2 THEN 4 WHEN c.pbr>0 AND c.pbr<=1.8 THEN 3 WHEN c.pbr>0 AND c.pbr<=2.5 THEN 2 WHEN c.pbr>0 THEN 1 ELSE 0 END)
- +(CASE WHEN c.dividend_yield>=4 AND c.dividend_yield<=20 THEN 3 WHEN c.dividend_yield>=3 AND c.dividend_yield<=20 THEN 2 WHEN c.dividend_yield>=0 AND c.dividend_yield<=20 THEN 1 ELSE 0 END) DESC,
- c.turnover DESC,c.stock LIMIT ?`).bind(date,limit).all();
- const rows=(result.results||[]).map(row=>{
-  let metrics=null,score=null;try{metrics=JSON.parse(row.metrics_json)}catch{}try{score=JSON.parse(row.score_json)}catch{}
-  return {...row,screen:{per:row.per,pbr:row.pbr,dividendYield:row.dividendYield,date:row.valuationDate},
-   profile:row.profileDate===date?{metrics,score}:null};
- });
- return {marketDate:date,stocks:rows,source:"database"};
-}
 export async function claimNextCompany(db){
  const cutoff=new Date(Date.now()-30*60000).toISOString();
  const claimed=await db.prepare(`UPDATE companies SET last_attempt=?
