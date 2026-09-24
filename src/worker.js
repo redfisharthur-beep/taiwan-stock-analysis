@@ -147,10 +147,10 @@ export default {async fetch(request,env,ctx){
   rankingMode:"on_demand_no_database",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.12.0",time:new Date().toISOString()});
+  version:"0.12.1",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.12");
+  const key=new Request(url.origin+"/api/top5?model=0.12.1");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env),response=reply(body,200,1800);
