@@ -14,14 +14,14 @@
 </section>
 <section class="panel search"><label for="ticker">想查哪一檔股票？</label><form id="search"><input id="ticker" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="輸入代號，例如 2330" required><button id="submit" type="submit">查詢</button></form><p id="status" role="status">輸入股票代號，即可查看近期行情、資料來源與研究重點。</p></section>
 <section class="panel" id="daily-panel">
- <div class="card-head"><div><div class="eyebrow">每日研究清單</div><h2>每日觀察 5 檔</h2><p class="section-intro">每檔最近收盤價不超過 500 元，並顯示入選依據與尚待確認的風險。</p></div><span class="pill" id="daily-date">查詢中</span></div>
+ <div class="card-head"><div><div class="eyebrow">每日研究清單</div><h2>每日觀察 5 檔</h2><p class="section-intro">每檔最近收盤價低於 500 元，並顯示入選依據與尚待確認的風險。</p></div><span class="pill" id="daily-date">查詢中</span></div>
  <p class="muted" id="daily-status" role="status">正在讀取上市、上櫃官方行情…</p><div class="coverage-strip" id="market-coverage" role="status">市場掃描情況載入中…</div>
  <div id="daily-list" class="daily-list"></div>
  <div class="secondary-heading"><div><h3>價值投資觀察 5 檔</h3><p class="section-intro">從可核對的估值資料找出 5 檔供研究；不會因條件太嚴而把名單清空，未達標會清楚標示。</p></div><span class="pill" id="value-date">查詢中</span></div>
  <p class="muted" id="value-status" role="status">正在比較兩市場官方估值資料…</p>
  <div id="value-list" class="daily-list"></div>
 
- <details class="fineprint"><summary>名單怎麼選？</summary>從證交所與櫃買中心當日公開行情中的四位數股票逐檔做價格、成交金額與本益比／淨值比／殖利率初篩；兩市場必須是同一交易日才視為完整比較。每日與價值清單各顯示最多五檔、價格不超過 500 元。每張卡顯示有通過、未通過、尚無資料的條件。只有名單中的股票才進一步向 FinMind 取得財報、籌碼、技術資料；不等於市場全部個股已完成全面評分。停牌、無成交價、特殊證券或來源缺漏另列入統計，暫缺資料不補零、不保證任何獲利。</details>
+ <details class="fineprint"><summary>名單怎麼選？</summary>從證交所與櫃買中心當日公開行情中的四位數股票逐檔做價格、成交金額與本益比／淨值比／殖利率初篩；兩市場必須是同一交易日才視為完整比較。每日與價值清單各顯示最多五檔、價格低於 500 元。每張卡顯示有通過、未通過、尚無資料的條件。只有名單中的股票才進一步向 FinMind 取得財報、籌碼、技術資料；不等於市場全部個股已完成全面評分。停牌、無成交價、特殊證券或來源缺漏另列入統計，暫缺資料不補零、不保證任何獲利。</details>
 </section>
 <div id="result" hidden>
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
