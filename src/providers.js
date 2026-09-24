@@ -11,14 +11,18 @@ export async function officialQuote(stock){ // 官方端點失敗即標示失敗
  const found=await Promise.all(endpoints.map(async p=>{try{const rows=await json(p.url);if(!Array.isArray(rows))throw Error("invalid format");const row=rows.find(r=>String(r[p.code]??"").trim()===stock);if(!row)return null;const price=n(row[p.price]);if(price===null||price<=0)throw Error("invalid closing price");return {market:p.market,source:p.source,name:String(row[p.name]??"").trim(),close:price,date:rocDate(row[p.date]),url:p.url,verifiedFormat:!!rocDate(row[p.date])};}catch(e){return {error:p.source+" 官方資料暫時不可用："+e.message}}}));
  return {quote:found.find(x=>x&&x.close)||null,errors:found.filter(x=>x?.error).map(x=>x.error)};
 }
-export function normalize(prices,revenue,financials,investors,valuation=[],cashFlows=[],margin=[]){return {
+export function normalize(prices,revenue,financials,investors,valuation=[],cashFlows=[],margin=[],adjusted=[],balance=[]){return {
  prices:prices.map(x=>({date:String(x.date??""),open:n(x.open),high:n(x.max),low:n(x.min),close:n(x.close),volume:n(x.Trading_Volume)})).filter(x=>x.date&&x.close>0).sort((a,b)=>a.date.localeCompare(b.date)),
  revenues:revenue.map(x=>({date:String(x.date??""),revenue:n(x.revenue),revenue_year:x.revenue_year,revenue_month:x.revenue_month})).filter(x=>x.revenue!==null),
  financials:financials.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value)})).filter(x=>x.value!==null),
  institutional:investors.map(x=>({date:String(x.date??""),name:x.name,buy:n(x.buy),sell:n(x.sell)})).filter(x=>x.date&&x.buy!==null&&x.sell!==null),
  valuation:valuation.map(x=>({date:String(x.date??""),per:n(x.PER),pbr:n(x.PBR),dividendYield:n(x.dividend_yield)})).filter(x=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x.date)),
  cashFlows:cashFlows.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value)})).filter(x=>x.date&&x.value!==null),
- margin:margin.map(x=>({date:String(x.date??""),financing:n(x.MarginPurchaseTodayBalance),previousFinancing:n(x.MarginPurchaseYesterdayBalance),short:n(x.ShortSaleTodayBalance),previousShort:n(x.ShortSaleYesterdayBalance)})).filter(x=>x.date&&x.financing!==null&&x.previousFinancing!==null&&x.short!==null&&x.previousShort!==null)
+ margin:margin.map(x=>({date:String(x.date??""),financing:n(x.MarginPurchaseTodayBalance),previousFinancing:n(x.MarginPurchaseYesterdayBalance),short:n(x.ShortSaleTodayBalance),previousShort:n(x.ShortSaleYesterdayBalance)})).filter(x=>x.date&&x.financing!==null&&x.previousFinancing!==null&&x.short!==null&&x.previousShort!==null),
+ adjusted:adjusted.map(x=>({date:String(x.date??""),close:n(x.close),volume:n(x.Trading_Volume)}))
+   .filter(x=>x.date&&x.close>0).sort((a,b)=>a.date.localeCompare(b.date)),
+ balance:balance.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value)}))
+   .filter(x=>x.date&&x.value!==null)
 }}
 export function reconcile(official,prices){if(!official)return {state:"無法確認",note:"尚未取得官方同行情資料"};if(!official.date)return {state:"日期未知",note:"官方回應缺乏可辨認日期，不進行價格自動核對"};const match=prices.find(p=>p.date===official.date);if(!match)return {state:"日期不一致",note:"FinMind 沒有相同交易日資料，不能直接比較最新兩筆"};const equal=Math.abs(match.close-official.close)<0.0001;return {state:equal?"一致":"不一致",note:equal?"相同交易日收盤價一致":"官方與 FinMind 同日價格不同，暫停總分顯示",date:official.date,finmindClose:match.close,officialClose:official.close}}
 
