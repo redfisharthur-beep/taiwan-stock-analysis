@@ -1,7 +1,9 @@
 // TDCC official weekly distribution, open-data dataset 1-5.
 // Levels 12–15 = accounts with 400,001 shares or more (400 lots).
 const url="https://openapi.tdcc.com.tw/v1/opendata/1-5";
-const num=x=>{const n=Number(String(x??"").replaceAll(",","").trim());return Number.isFinite(n)?n:null};
+const num=x=>{const raw=String(x??"").replaceAll(",","").trim();
+ if(!raw||raw==="-"||raw==="--")return null;
+ const n=Number(raw);return Number.isFinite(n)?n:null};
 const cleanDate=x=>{const s=String(x??"").replace(/[^0-9]/g,"");return s.length===8?s.slice(0,4)+"-"+s.slice(4,6)+"-"+s.slice(6,8):s.length===7?String(Number(s.slice(0,3))+1911)+"-"+s.slice(3,5)+"-"+s.slice(5,7):null};
 export function concentration(rows,stock,marketDate){
  const found=(rows||[]).filter(x=>String(x["證券代號"]??x.stock_id??"").trim()===stock)
