@@ -14,7 +14,7 @@ function groupCard(name,part){
   const row=el("div","","score-row"),label=el("div","","row-head");
   label.append(el("span",item.name),el("strong",item.score===null?"待補":item.score+" / "+item.max));
   row.append(label,el("small",item.value===null?"":fmt(item.value)),el("small",item.score===null?
-   "資料尚未完成":(item.source||"來源未標示")+" · "+(item.date||"日期未明")+" · "+item.note));
+   "尚未評分："+(item.note||"目前無可用資料"):(item.source||"來源未標示")+" · "+(item.date||"日期未明")+" · "+item.note));
   details.append(row);
  }box.append(details);return box;
 }
@@ -59,7 +59,8 @@ function present(d){
  source(sources,"FinMind · "+d.finmind.date,"https://finmindtrade.com/");
  if(d.official)source(sources,d.official.source+" · "+(d.official.date||"日期未提供"),d.official.url);
  source(sources,"Goodinfo · "+(d.goodinfo?.day||"日期未確認"),d.links.goodinfo);
- source(sources,"公開資訊觀測站",d.links.mops);
+ source(sources,"公開資訊觀測站（目前僅提供原始公告連結，尚未自動評分）",d.links.mops);
+ for(const warning of d.sourceWarnings||[])sources.append(el("p","資料更新提示："+warning,"muted"));
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
 }
 $("search").addEventListener("submit",async e=>{
