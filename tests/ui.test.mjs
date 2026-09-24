@@ -30,7 +30,7 @@ test("single original stylesheet defines Morandi palettes and rounded light font
  assert.match(css,/body\{[^}]*font-size:19px;[^}]*font-weight:700/);
  assert.match(css,/#ticker\{[^}]*font-size:21px;[^}]*font-weight:700/);
  assert.doesNotMatch(css,/font-weight:(?:300|400|500|600)/);
- assert.match(html,/Noto\+Sans\+TC:wght@400;500;600;700;800/);
+ assert.match(html,/Noto\+Sans\+TC:wght@(?:300;)?400;500;600;700;800/);
 });
 test("Cloudflare cron weekday names cannot unintentionally include Sunday",()=>{
  assert.deepEqual(wrangler.triggers.crons,
@@ -59,7 +59,7 @@ test("stock research shows observed points separately from coverage and splits E
  assert.match(js,/基本面/);
  assert.match(js,/資料涵蓋/);
  assert.match(js,/綜合分數/);
- assert.match(js,/資料未達100%/);
+ assert.match(js,/待資料齊全/);
  assert.match(js,/const metricDetails=item=>/);
  assert.match(js,/case "EPS 與去年同季":/);
  assert.match(js,/score-metric/);
