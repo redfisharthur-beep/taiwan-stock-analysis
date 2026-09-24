@@ -27,6 +27,12 @@
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
  <div id="verify" class="notice"></div><div id="overview" class="overview"></div><div id="warnings" class="muted"></div></section>
  <section class="panel" id="chart-panel"><div class="card-head"><h3>K 線走勢</h3><span class="pill">原始日 K</span></div><p class="muted">K 線顯示真實成交價；技術指標優先採還原價，若尚未更新則改用未還原行情並明確標示。</p><canvas id="kline" width="800" height="350" role="img" aria-label="近70交易日日K線及成交量"></canvas><div class="muted" id="kline-tip" role="status"></div></section>
+ <details class="panel sources" id="sinopac-owner-panel"><summary>永豐 Shioaji 私人行情測試</summary>
+ <p class="muted">僅供帳戶持有人核對券商快照，尚未接入公開評分。請勿輸入永豐 API Key 或 Secret Key。</p>
+ <div class="broker-owner-row"><input id="sinopac-owner-token" type="password" autocomplete="off" spellcheck="false" placeholder="輸入你自行設定的私人測試碼" aria-label="私人測試碼">
+ <button id="sinopac-owner-check" type="button">查詢永豐</button></div>
+ <p id="sinopac-owner-result" class="muted" role="status">永豐資料僅在輸入私人測試碼後查詢，不會公開給其他訪客。</p>
+ </details>
  <section class="scoring" id="parts" aria-label="四面向評分詳情"></section>
  <details class="panel sources" id="evidence-panel"><summary>消息來源與查證紀錄</summary>
   <p class="muted" id="news-status">尚未完成事件交叉核對。</p>
