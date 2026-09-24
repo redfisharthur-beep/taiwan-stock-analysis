@@ -33,6 +33,8 @@ export async function getMarketSummary(db){
    SUM(CASE WHEN close>0 AND quote_date IS NOT NULL THEN 1 ELSE 0 END) AS eligible,
    SUM(CASE WHEN close IS NULL OR close<=0 THEN 1 ELSE 0 END) AS noQuote,
    SUM(CASE WHEN industry='ETF' THEN 1 ELSE 0 END) AS etf,
+   SUM(CASE WHEN close>0 AND quote_date IS NOT NULL AND industry='ETF' THEN 1 ELSE 0 END) AS eligibleETFs,
+   SUM(CASE WHEN close>0 AND quote_date IS NOT NULL AND COALESCE(industry,'')!='ETF' THEN 1 ELSE 0 END) AS eligibleCompanies,
    SUM(CASE WHEN last_attempt IS NOT NULL THEN 1 ELSE 0 END) AS attempted,
    SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed
    FROM companies WHERE last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
@@ -41,6 +43,9 @@ export async function getMarketSummary(db){
    SUM(CASE WHEN p.financial_period IS NOT NULL THEN 1 ELSE 0 END) AS finance,
    SUM(CASE WHEN p.technical_date IS NOT NULL THEN 1 ELSE 0 END) AS technical,
    SUM(CASE WHEN p.chips_date IS NOT NULL THEN 1 ELSE 0 END) AS chips,
+   SUM(CASE WHEN c.industry='ETF' AND p.market_date=c.quote_date AND c.close>0
+     AND json_extract(p.score_json,'$.parts.technical.covered')=30
+     AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullETFTechnical,
    SUM(CASE WHEN COALESCE(c.industry,'')!='ETF' AND p.market_date=c.quote_date AND json_extract(p.score_json,'$.coveragePercent')=100
      AND json_extract(p.score_json,'$.score') IS NOT NULL
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullCoverage,
@@ -51,7 +56,10 @@ export async function getMarketSummary(db){
  let original=null;try{original=state?.value?JSON.parse(state.value):null}catch{}
  const total=company?.total||0,profiles=profile?.profiles||0;
  return {configured:true,total,eligible:company?.eligible||0,noQuote:company?.noQuote||0,
-  etf:company?.etf||0,attempted:company?.attempted||0,failed:company?.failed||0,
+  etf:company?.etf||0,eligibleETFs:company?.eligibleETFs||0,
+  eligibleCompanies:company?.eligibleCompanies||0,
+  fullETFTechnical:profile?.fullETFTechnical||0,
+  attempted:company?.attempted||0,failed:company?.failed||0,
   profiles,currentProfiles:profile?.currentProfiles||0,
   unprocessed:Math.max(0,total-profiles),fullCoverage:profile?.fullCoverage||0,
   finance:profile?.finance||0,technical:profile?.technical||0,
