@@ -29,7 +29,7 @@ test("all-market pages distinguish complete, partial and ETF without fabricating
  const records=[
   {stock:"2330",name:"台積電",market:"上市",industry:"半導體",close:100,quoteDate:"2026-09-24",
    analyzedAt:"2026-09-24T11:00:00Z",researchDate:"2026-09-24",
-   scoreJSON:JSON.stringify({coveragePercent:100,score:78,parts:{}}),
+   scoreJSON:JSON.stringify({scoreModelVersion:"chips_flow20_margin10_v1",coveragePercent:100,score:78,parts:{}}),
    metricsJSON:JSON.stringify({verified:true})},
   {stock:"6488",name:"環球晶",market:"上櫃",industry:"半導體",close:40,quoteDate:"2026-09-24",
    analyzedAt:"2026-09-24T11:00:00Z",researchDate:"2026-09-24",
