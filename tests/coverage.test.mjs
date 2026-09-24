@@ -32,10 +32,11 @@ test("all new financial metrics use actual dates and valid cash/debt and histori
  assert.equal(s.parts.technical.covered,20);assert.equal(s.coveredPoints,85);
  assert.equal(s.score,null);assert.equal(s.parts.news.covered,0);
 });
-test("missing adjusted series, balance and historical PER cannot be fabricated",()=>{
+test("raw technical indicators stay source-labeled when adjusted series is missing; balance and PER remain missing",()=>{
  const s=scoreStock({prices,valuation:[{date:marketDate,per:18}],cashFlows:extra.cashFlows,
   margin:[{date:"2026-09-30",financing:1,previousFinancing:2,short:0,previousShort:0}]});
- assert.equal(s.parts.technical.covered,0);
+ assert.equal(s.parts.technical.covered,20);
+ assert.equal(s.technicalMode,"raw");
  assert.equal(s.parts.fundamental.items.find(x=>x.name==="估值／本益比").score,null);
  assert.equal(s.parts.fundamental.items.find(x=>x.name==="獲利品質與負債").score,null);
  assert.equal(s.parts.chips.items.find(x=>x.name==="法人近五日淨買賣／成交量").score,null);
