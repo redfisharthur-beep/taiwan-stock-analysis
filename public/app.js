@@ -338,29 +338,20 @@ function renderStockCard(stock){
  const card=el("article","","daily-item"),rank=el("div",String(stock.rank),"daily-rank");
  const body=el("div"),right=el("div","","daily-score");
  const etf=stock.kind==="etf";
- body.append(el("div",(stock.name||"股票")+" "+stock.stock,"daily-name"),
+ body.append(el("div",(stock.name||"標的")+" "+stock.stock,"daily-name"),
   el("div",stock.market,"daily-sub"));
+ const tags=el("div","","daily-parts");
  if(etf){
-  const tags=el("div","","daily-parts");
-  tags.append(el("span","ETF 價量技術 "+numberText(stock.technicalScore)+" / 30"));
-  body.append(tags);
+  tags.append(el("span","ETF · 價量技術 "+numberText(stock.technicalScore)+" / 30"),
+   el("span","適用模型折算 "+numberText(stock.score)+" / 100"));
  }else{
-  const tags=el("div","","daily-parts");
   for(const [label,key,max] of [["基本面","fundamental",40],["技術面","technical",30],["籌碼面","chips",30]]){
    const part=stock.parts?.[key];
    tags.append(el("span",label+" "+numberText(part?.earned)+" / "+max));
   }
-  body.append(tags);
-  const figures=el("div","","daily-parts"),data=stock.financials||{};
-  if(typeof data.eps==="number")figures.append(el("span","EPS "+numberText(data.eps)+" 元"));
-  if(typeof data.operatingCashFlow==="number")figures.append(el("span",
-   "營業現金流 "+(data.operatingCashFlow>0?"正值":data.operatingCashFlow<0?"負值":"零")));
-  if(typeof data.debtRatioPct==="number")figures.append(el("span","負債比 "+numberText(data.debtRatioPct)+"%"));
-  if(figures.children.length)body.append(figures);
  }
- right.append(el("strong",etf?
-  "技術 "+numberText(stock.technicalScore)+" / 30":
-  "綜合 "+numberText(stock.score)+" / 100"));
+ body.append(tags);
+ right.append(el("strong",numberText(stock.score)+" / 100"));
  right.append(el("small",showMetric(stock.close,etf?"":" 元")));
  const button=el("button","分析","daily-action");
  button.type="button";
@@ -369,28 +360,21 @@ function renderStockCard(stock){
 }
 async function refreshDaily(){
  const status=$("daily-status"),list=$("daily-list");
- list.replaceChildren();status.hidden=false;status.textContent="正在核對已完成的全市場研究資料…";
+ list.replaceChildren();status.hidden=false;status.textContent="正在讀取完整評分名單…";
  try{
   const response=await fetch("/api/observations");
   const d=await response.json();
-  if(!response.ok)throw Error(d.reason||"資料服務暫不可用");
-  const rows=(d.stocks||[]).filter(x=>typeof x.score==="number"&&x.coveredPoints===100).slice(0,5);
-  const etfs=(d.etfs||[]).filter(x=>x.technicalCoverage===30).slice(0,5);
+  if(!response.ok)throw Error(d.reason||"研究服務暫不可用");
+  const rows=(d.stocks||[]).filter(x=>typeof x.score==="number"&&
+    x.coveredPoints===100).slice(0,5);
   status.textContent=d.reason||"";
   status.hidden=!status.textContent;
-  for(const [title,group] of [["股票綜合分數前五名",rows],["ETF 技術觀察（獨立評估）",etfs]]){
-   if(!group.length)continue;
-   const section=el("section","","daily-group");
-   section.append(el("h3",title,"daily-group-title"));
-   const items=el("div","","daily-group-list");
-   for(const stock of group)items.append(renderStockCard(stock));
-   section.append(items);list.append(section);
-  }
-  if(!rows.length&&!etfs.length){
+  for(const stock of rows)list.append(renderStockCard(stock));
+  if(!rows.length){
    status.hidden=false;
-   status.textContent=d.reason||"尚無資料完整且已核實的標的，暫不顯示前五名。";
+   status.textContent=d.reason||"尚無資料涵蓋完整、來源已核實的標的，暫不顯示名單。";
   }
- }catch(error){status.textContent="前五名暫無法更新："+error.message;status.hidden=false;}
+ }catch(error){status.textContent="觀察名單暫無法更新："+error.message;status.hidden=false;}
 }
 const hero=$("hero-image");hero.addEventListener("load",()=>{
  if(hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=true;}
@@ -399,14 +383,6 @@ if(hero.complete&&hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=
 const requested=new URLSearchParams(location.search).get("stock");
 if(requested&&/^\d{4,6}$/.test(requested)){$("ticker").value=requested;$("search").requestSubmit();}
 refreshDaily();
-fetch("/api/market-status").then(r=>r.json()).then(data=>{
- const label=$("market-sync-label");
- label.textContent=data.configured?
-  "全市場 "+(data.total||0)+" 檔｜已建立研究 "+(data.profiles||0)+" 檔｜股票完整評分 "+(data.fullCoverage||0)+" 檔｜"+
-  "待建立 "+(data.unprocessed||0)+" 檔｜取得失敗 "+(data.failed||0)+" 檔。"+
-   (data.lastResearch?"最近更新："+data.lastResearch:"等待排程建立研究資料"):
-  "批次研究資料庫尚未綁定；仍可瀏覽官方全市場名冊與查詢個股。";
-}).catch(()=>{$("market-sync-label").textContent="資料庫更新狀態暫時不可用";});
 let width=0;window.addEventListener("resize",()=>{
  const w=Math.round($("kline").getBoundingClientRect().width);
  if(current&&!$("result").hidden&&w!==width){width=w;setupKline($("kline"),$("kline-tip"),current.candles||[]);}
