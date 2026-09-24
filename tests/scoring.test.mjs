@@ -1,10 +1,27 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import {scoreStock,indicators,num} from "../src/scoring.js";
+import test from "node:test";import assert from "node:assert/strict";
+import {scoreStock,indicators,num,WEIGHTS} from "../src/scoring.js";
 import {reconcile} from "../src/providers.js";
-test("missing data never fabricates a full score",()=>{const r=scoreStock({});assert.equal(r.score,null);assert.equal(r.coveredPoints,0);assert.equal(r.parts.news.covered,0)});
-test("fixed 50/10/20/20 weights are not reweighted when missing",()=>{const p=Array.from({length:90},(_,i)=>({date:new Date(Date.UTC(2025,0,1+i)).toISOString().slice(0,10),close:100+i*.1,volume:1000}));const r=scoreStock({prices:p});assert.equal(r.coveredPoints,20);assert.equal(r.score,null);assert.equal(r.parts.fundamental.max,50);assert.equal(r.parts.news.max,10);assert.equal(r.parts.chips.max,20);assert.equal(r.parts.technical.max,20)});
-test("technical indicators work on adequate history",()=>{const p=Array.from({length:80},(_,i)=>({date:String(i).padStart(3,"0"),close:100+i,volume:2000}));assert.ok(indicators(p).ma60>0)});
-test("cross-date quotes cannot be compared",()=>assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-23",close:100}]).state,"日期不一致"));
-test("same date mismatch is highlighted",()=>assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-24",close:101}]).state,"不一致"));
-test("missing numeric value is null, not zero",()=>{assert.equal(num(""),null);assert.equal(num("1,234.5"),1234.5)});
+test("missing data cannot create fabricated full 100-point score",()=>{
+ const s=scoreStock({});assert.equal(s.score,null);assert.equal(s.coveredPoints,0);assert.equal(s.parts.news.covered,0);
+});
+test("missing adjusted prices must not be treated as dividend-adjusted technical coverage",()=>{
+ const rows=Array.from({length:90},(_,i)=>({date:new Date(Date.UTC(2026,5,26+i)).toISOString().slice(0,10),
+  close:100+i*.1,volume:1000}));
+ const s=scoreStock({prices:rows});assert.equal(s.coveredPoints,0);assert.equal(s.score,null);
+ assert.deepEqual(Object.fromEntries(Object.entries(s.parts).map(([k,v])=>[k,v.max])),WEIGHTS);
+});
+test("adjusted-price indicators include risk metrics but do not change original K-line prices",()=>{
+ const rows=Array.from({length:90},(_,i)=>({date:new Date(Date.UTC(2026,5,26+i)).toISOString().slice(0,10),
+  close:100+i*.1,volume:1000}));
+ const s=scoreStock({prices:rows,adjusted:rows.map(r=>({...r,close:r.close/2}))});
+ assert.equal(s.parts.technical.covered,20);assert.equal(s.coveredPoints,20);
+ assert.ok(s.indicators.volatility20>=0);assert.ok(s.indicators.maxDrawdown60>=0);
+ assert.equal(rows.at(-1).close,108.9);
+});
+test("missing or invalid numeric value is never automatically zero",()=>{
+ assert.equal(num(""),null);assert.equal(num("1,234.5"),1234.5);
+});
+test("official price cross-check remains same-date only",()=>{
+ assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-23",close:100}]).state,"日期不一致");
+ assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-24",close:101}]).state,"不一致");
+});
