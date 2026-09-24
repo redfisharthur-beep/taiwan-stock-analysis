@@ -1,3 +1,4 @@
+import {mergeVerifiedResearch} from "./top-five.js";
 import {tickerPattern,isETFCandidate} from "./instruments.js";
 import {finmind,officialQuote,scanOfficialUniverse,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
@@ -206,26 +207,26 @@ async function performScheduled(controller,env){
 // Homepage lists only verified, fully covered results from the entire stored universe.
 // Never use an unscored price/valuation prescreen as an apparent top-score recommendation.
 async function computeDailyObservations(env){
- if(!hasMarketDB(env))return {ready:false,stocks:[],etfs:[],analyzedCount:0,
-  reason:"全市場研究資料庫尚未啟用，沒有可核實的綜合分數；不以估值初篩充當前五名。"};
- const [summary,top]=await Promise.all([
+ if(!hasMarketDB(env))return {ready:false,stocks:[],analyzedCount:0,
+  reason:"全市場研究資料庫尚未啟用，無法核實各檔完整評分。"};
+ const [summary,groups]=await Promise.all([
   getMarketSummary(env.MARKET_DB),getVerifiedTopFive(env.MARKET_DB)
  ]);
+ const stocks=mergeVerifiedResearch(groups);
  const allComparable=summary.eligible>0&&
   summary.currentProfiles>=summary.eligible&&
   summary.fullCoverage>=summary.eligibleCompanies&&
   summary.fullETFTechnical>=summary.eligibleETFs&&
   summary.markets?.length===2&&summary.markets.every(m=>m.registryAvailable);
- return {ready:top.stocks.length>0||top.etfs.length>0,
-  marketDate:summary.marketDate,asOf:new Date().toISOString(),
-  stocks:top.stocks,etfs:top.etfs,analyzedCount:summary.currentProfiles,
-  selectedStocks:top.selectedStocks,selectedETFs:top.selectedETFs,
-  universe:{total:summary.total,eligible:summary.eligible,profiles:summary.profiles,
-   fullCoverage:summary.fullCoverage,scannedAll:allComparable},
+ return {ready:stocks.length>0,marketDate:summary.marketDate,
+  asOf:new Date().toISOString(),stocks,analyzedCount:summary.currentProfiles,
+  universe:{total:summary.total,eligible:summary.eligible,
+   profiles:summary.currentProfiles,fullCoverage:summary.fullCoverage,
+   fullETFTechnical:summary.fullETFTechnical,scannedAll:allComparable},
   reason:!summary.total?"上市與上櫃名冊尚未完成同步。":
-   !allComparable?"僅顯示資料完整且已核實的股票；其他標的仍待分析，尚非全市場最終前五名。":
-   top.stocks.length<5?"資料核實完成，但可納入公司完整評分的股票不足五檔。":
-   "公司股票依基本面40／技術30／籌碼30分排序；ETF另按技術30分獨立顯示。"};
+   !allComparable?"僅列已核實且適用資料完整的標的；仍有股票或 ETF 尚未評分，因此不是全市場最終前五名。":
+   stocks.length<5?"目前資料符合完整評分條件的標的不足五檔。":
+   "股票為公司40／30／30總分，ETF為獨立技術30分折算百分比；兩類評分依據不同。"};
 }
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
