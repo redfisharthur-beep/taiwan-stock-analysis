@@ -1,5 +1,5 @@
 // SQLite D1 storage; all statements use bound parameters. Missing binding stays read-only/fallback.
-import {concentration,getHoldingRows} from "./holding.js";
+import {getHoldingRows} from "./holding.js";
 const now=()=>new Date().toISOString();
 const numeric=x=>typeof x==="number"&&Number.isFinite(x)?x:null;
 export const hasMarketDB=env=>!!env?.MARKET_DB?.prepare;
@@ -175,28 +175,92 @@ export async function getIndustryPeers(db,company,period,limit=600){
  .bind(company.industry,company.market,new Date(Date.parse(period+"T00:00:00Z")-7*86400000).toISOString().slice(0,10),limit).all();
  return (result.results||[]).flatMap(x=>{try{return [{...x,marketDate:x.market_date,metrics:JSON.parse(x.metrics_json)}]}catch{return []}});
 }
+const weekDate=value=>{
+ const digits=String(value??"").replace(/[^0-9]/g,"");
+ return digits.length===8?digits.slice(0,4)+"-"+digits.slice(4,6)+"-"+digits.slice(6,8):
+  digits.length===7?String(Number(digits.slice(0,3))+1911)+"-"+digits.slice(3,5)+"-"+digits.slice(5,7):null;
+};
+/** Three truly consecutive TDCC weeks are required; a lone week never earns a trend score. */
+export function holdingFromWeeks(weeks,marketDate){
+ const recent=[...weeks].filter(x=>x?.date&&x.date<=marketDate&&numeric(x.share)>=0&&x.share<=100)
+  .sort((a,b)=>a.date.localeCompare(b.date));
+ const latest=recent.at(-1);
+ if(!latest)return null;
+ const age=(Date.parse(marketDate+"T00:00:00Z")-Date.parse(latest.date+"T00:00:00Z"))/86400000;
+ if(!Number.isFinite(age)||age<0||age>14)return null;
+ let trend=null;
+ if(recent.length>=3){
+  const last=recent.slice(-3),intervals=last.slice(1).map((w,i)=>
+   (Date.parse(w.date+"T00:00:00Z")-Date.parse(last[i].date+"T00:00:00Z"))/86400000);
+  if(intervals.every(days=>days>=5&&days<=10)){
+   const changes=last.slice(1).map((w,i)=>Math.round((w.share-last[i].share)*100)/100);
+   trend={weeks:last,weeklyChanges:changes,changeTwoWeeks:Math.round((latest.share-last[0].share)*100)/100,
+    risingWeeks:changes.filter(x=>x>0).length,fallingWeeks:changes.filter(x=>x<0).length};
+  }
+ }
+ return {date:latest.date,share:latest.share,change:trend?.weeklyChanges.at(-1)??null,
+  trend,previousDate:trend?.weeks.at(-2)?.date??null,source:"TDCC 集保戶股權分散表",
+  sourceUrl:"https://openapi.tdcc.com.tw/v1/opendata/1-5",
+  note:trend?"已核實同股票連續三週 400 張以上集保占比趨勢":
+   "至少需三期連續有效週資料，單週占比不予趨勢計分"};
+}
 export async function syncHoldingSnapshots(db,marketDate){
- const rows=await getHoldingRows();
- const grouped=new Map();
+ const rows=await getHoldingRows(),byStock=new Map(),ts=now();
+ const cutoff=new Date(Date.parse(marketDate+"T00:00:00Z")-35*86400000).toISOString().slice(0,10);
  for(const row of rows){
   const stock=String(row["證券代號"]??row.stock_id??"").trim();
-  if(!/^[0-9]{4}$/.test(stock))continue;
-  if(!grouped.has(stock))grouped.set(stock,[]);
-  grouped.get(stock).push(row);
+  const date=weekDate(row["資料日期"]??row.date);
+  const level=Number(row["持股分級"]??row.HoldingSharesLevel);
+  const pct=Number(String(row["占集保庫存數比例%"]??row.percent??"").replaceAll(",",""));
+  if(!/^[0-9]{4}$/.test(stock)||!date||date<cutoff||date>marketDate||
+    !Number.isInteger(level)||level<12||level>15||!Number.isFinite(pct)||pct<0||pct>100)continue;
+  if(!byStock.has(stock))byStock.set(stock,new Map());
+  const weeks=byStock.get(stock);
+  if(!weeks.has(date))weeks.set(date,new Map());
+  const levels=weeks.get(date);
+  // Duplicate tiers invalidate that week instead of double-counting.
+  levels.set(level,levels.has(level)?null:pct);
  }
- const ts=now(),statements=[];
- for(const [stock,groups] of grouped){
-  const h=concentration(groups,stock,marketDate);
+ const weekly=[],updatedStocks=new Set();
+ for(const [stock,dates] of byStock){
+  for(const [date,levels] of dates){
+   if(levels.size!==4||[12,13,14,15].some(l=>typeof levels.get(l)!=="number"))continue;
+   const share=[12,13,14,15].reduce((sum,l)=>sum+levels.get(l),0);
+   if(share>100)continue;
+   updatedStocks.add(stock);
+   weekly.push(db.prepare(`INSERT INTO holder_weeks(stock,source_date,share_pct,updated_at)
+    VALUES(?,?,?,?) ON CONFLICT(stock,source_date) DO UPDATE SET
+    share_pct=excluded.share_pct,updated_at=excluded.updated_at`)
+    .bind(stock,date,Math.round(share*100)/100,ts));
+  }
+ }
+ await runBatch(db,weekly);
+ const result=await db.prepare(`SELECT stock,source_date,share_pct FROM (
+  SELECT stock,source_date,share_pct,
+   ROW_NUMBER() OVER(PARTITION BY stock ORDER BY source_date DESC) AS rn
+  FROM holder_weeks WHERE source_date>=?) WHERE rn<=3 ORDER BY stock,source_date`)
+  .bind(cutoff).all();
+ const history=new Map();
+ for(const r of result.results||[]){
+  if(!history.has(r.stock))history.set(r.stock,[]);
+  history.get(r.stock).push({date:r.source_date,share:r.share_pct});
+ }
+ const snapshots=[];
+ for(const stock of updatedStocks){
+  const h=holdingFromWeeks(history.get(stock)||[],marketDate);
   if(!h)continue;
-  statements.push(db.prepare(`INSERT INTO holder_snapshots(stock,source_date,share_pct,trend_json,updated_at)
+  snapshots.push(db.prepare(`INSERT INTO holder_snapshots(stock,source_date,share_pct,trend_json,updated_at)
    VALUES(?,?,?,?,?) ON CONFLICT(stock) DO UPDATE SET
    source_date=excluded.source_date,share_pct=excluded.share_pct,trend_json=excluded.trend_json,updated_at=excluded.updated_at`)
    .bind(stock,h.date,h.share,JSON.stringify(h),ts));
  }
- await runBatch(db,statements);
- return statements.length;
+ await runBatch(db,snapshots);
+ return snapshots.length;
 }
-export async function savedHolding(db,stock){
+export async function savedHolding(db,stock,marketDate=null){
  const r=await db.prepare("SELECT trend_json FROM holder_snapshots WHERE stock=?").bind(stock).first();
- try{return r?JSON.parse(r.trend_json):null}catch{return null}
+ try{
+  const held=r?JSON.parse(r.trend_json):null;
+  return held&&marketDate?holdingFromWeeks(held.trend?.weeks||[{date:held.date,share:held.share}],marketDate):held;
+ }catch{return null}
 }
