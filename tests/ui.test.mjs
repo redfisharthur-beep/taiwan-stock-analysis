@@ -9,6 +9,12 @@ const wrangler=JSON.parse(readFileSync(new URL("../wrangler.jsonc",import.meta.u
 test("newbie homepage uses single daily list and stock keyword query with simple Analyze action",()=>{
  assert.match(html,/placeholder="輸入股票代碼或文字"/);
  assert.match(html,/每日觀察<\/h2>/);
+ assert.doesNotMatch(html,/新手先看這裡：3 個數字怎麼理解？|class="newbie-guide"/);
+ assert.match(js,/\["上市股票"/);
+ assert.match(js,/\["上櫃股票"/);
+ assert.match(js,/\["ETF"/);
+ assert.match(js,/stock.kind==="etf"\?"ETF":stock.market/);
+ assert.doesNotMatch(js,/stock.market\+" · 最近收盤 "/);
  assert.doesNotMatch(html,/想查哪一檔股票？|每日觀察 5 檔|價值投資觀察 5 檔|id="value-list"/);
  assert.match(js,/el\("button","分析","daily-action"\)/);
  assert.doesNotMatch(js,/查看分析 →|refreshValue\(/);
