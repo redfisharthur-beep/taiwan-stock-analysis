@@ -12,7 +12,7 @@ export async function officialQuote(stock){ // 官方端點失敗即標示失敗
  return {quote:found.find(x=>x&&x.close)||null,errors:found.filter(x=>x?.error).map(x=>x.error)};
 }
 export function normalize(prices,revenue,financials,investors){return {
- prices:prices.map(x=>({date:String(x.date??""),close:n(x.close),volume:n(x.Trading_Volume)})).filter(x=>x.date&&x.close>0).sort((a,b)=>a.date.localeCompare(b.date)),
+ prices:prices.map(x=>({date:String(x.date??""),open:n(x.open),high:n(x.max),low:n(x.min),close:n(x.close),volume:n(x.Trading_Volume)})).filter(x=>x.date&&x.close>0).sort((a,b)=>a.date.localeCompare(b.date)),
  revenues:revenue.map(x=>({date:String(x.date??""),revenue:n(x.revenue),revenue_year:x.revenue_year,revenue_month:x.revenue_month})).filter(x=>x.revenue!==null),
  financials:financials.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value)})).filter(x=>x.value!==null),
  institutional:investors.map(x=>({date:String(x.date??""),name:x.name,buy:n(x.buy),sell:n(x.sell)})).filter(x=>x.date&&x.buy!==null&&x.sell!==null)
