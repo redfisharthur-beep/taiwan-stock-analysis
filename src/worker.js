@@ -15,13 +15,14 @@ async function analyze(stock,env,override=null,shared=null){
  if(!env.FINMIND_TOKEN)return reply({error:"尚未在 Cloudflare 設定 FINMIND_TOKEN Secret。"},503);
  const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],
   ["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35],
-  ["TaiwanStockPER",45],["TaiwanStockCashFlowsStatement",600],["TaiwanStockMarginPurchaseShortSale",30]];
+  ["TaiwanStockPER",410],["TaiwanStockCashFlowsStatement",600],["TaiwanStockMarginPurchaseShortSale",30],
+  ["TaiwanStockPriceAdj",410],["TaiwanStockBalanceSheet",240]];
  const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,stock,name,days)));
  const warnings=data.flatMap((r,i)=>r.status==="rejected"?
   [datasets[i][0]+"："+String(r.reason?.message||"取得失敗")]:[]);
  if(data[0].status==="rejected")return reply({error:"FinMind 歷史行情取得失敗，已停止評分。",warnings},503);
  const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
- const clean=normalize(rows(0),rows(1),rows(2),rows(3),rows(4),rows(5),rows(6));
+ const clean=normalize(rows(0),rows(1),rows(2),rows(3),rows(4),rows(5),rows(6),rows(7),rows(8));
  if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings},404);
  const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
@@ -58,17 +59,18 @@ async function analyze(stock,env,override=null,shared=null){
 async function computeTopFive(env,mode="score",exclude=[]){
  if(!env.FINMIND_TOKEN)return {ready:false,reason:"尚未設定 FINMIND_TOKEN Secret；未產生榜單。",
   marketDate:null,stocks:[]};
- // Free Workers: 50 external subrequests/invocation. Six stocks × 7 FinMind +
- // two official quotes + two MOPS lists = 46 before redirects; no expensive TDCC bulk CSV.
+ // Free Workers: at most five candidates × nine FinMind requests + two market endpoints.
+ // Value mode adds two valuation endpoints; keep below 50 external requests if no redirects.
  const perMarket=env.FULL_SCREENING_ENABLED==="true"?5:3;
  const official=await officialCandidates(perMarket,{mode:mode==="value"?"value":"liquid",exclude});
  if(!official.candidates.length)return {ready:false,reason:"尚未取得帶有有效交易日期的官方行情，無法產生今日觀察名單。",
   marketDate:official.marketDate,sourceWarnings:official.warnings,stocks:[]};
- const selected=official.candidates;
+ const selected=env.FULL_SCREENING_ENABLED==="true"?official.candidates:official.candidates.slice(0,5);
  // Each official open-data file is requested once per daily computation, not once per stock.
- const [listedNews,otcNews]=await Promise.allSettled([
-  loadOfficialDisclosures("上市"),loadOfficialDisclosures("上櫃")
- ]);
+ const [listedNews,otcNews]=env.FULL_SCREENING_ENABLED==="true"?
+  await Promise.allSettled([loadOfficialDisclosures("上市"),loadOfficialDisclosures("上櫃")]):
+  [{status:"fulfilled",value:{rows:[],error:"首頁樣本不批次讀取公告；點入個股時核對"}},
+   {status:"fulfilled",value:{rows:[],error:"首頁樣本不批次讀取公告；點入個股時核對"}}];
  let tdccRows=[];
  if(perMarket===5){
   try{tdccRows=await getHoldingRows()}catch(error){console.warn("TDCC daily batch unavailable",String(error.message||error))}
@@ -108,10 +110,10 @@ async function computeTopFive(env,mode="score",exclude=[]){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"on_demand_no_database",version:"0.7.0",time:new Date().toISOString()});
+  rankingMode:"on_demand_no_database",version:"0.8.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.7");
+  const key=new Request(url.origin+"/api/top5?model=0.8");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env),response=reply(body,200,1800);
@@ -124,7 +126,7 @@ export default {async fetch(request,env,ctx){
   const exclusion=(url.searchParams.get("exclude")||"").split(",").filter(v=>
    v.length===4&&[...v].every(ch=>ch>="0"&&ch<="9")).slice(0,5);
   const exclude=[...new Set(exclusion)].sort();
-  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.7"),
+  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.8"),
    cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
