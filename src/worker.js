@@ -310,6 +310,33 @@ export default {async fetch(request,env,ctx){
       const company=await getSavedCompany(env.MARKET_DB,stock);
       if(company){
        const stored=await getSavedProfile(env.MARKET_DB,stock);
+       // A current, same-session verified archive may restore a complete score when
+       // one upstream feed is transiently unavailable during an individual revisit.
+       // Never reuse an older session, unverified profile or unearned coverage.
+       if(payload.score?.score===null&&stored?.marketDate===payload.finmind.date&&
+          company.date===payload.finmind.date&&payload.verification?.state==="一致"&&
+          stored.metrics?.verified===true&&stored.score?.coveragePercent===100&&
+          Number.isFinite(stored.score?.baseScore)&&
+          ["fundamental","technical","chips"].every(k=>
+           stored.score.parts?.[k]?.covered===stored.score.parts?.[k]?.max)){
+        const currentDelta=payload.score.newsDelta??0;
+        const archiveScore=stored.score;
+        payload.score={...archiveScore,newsDelta:currentDelta,
+         score:Math.max(0,Math.min(100,
+          Math.round((archiveScore.baseScore+currentDelta)*100)/100)),
+         scoreSource:"同交易日已核實研究快照"};
+        if(stored.metrics.financialInsights){
+         const original=stored.metrics.financialInsights;
+         const recent=payload.financialInsights||{};
+         const sameIncome=original.incomeDate===recent.incomeDate;
+         const sameBalance=original.balanceDate===recent.balanceDate;
+         payload.financialInsights={...recent,
+          ...(sameIncome&&Number.isFinite(original.netMargin)&&recent.netMargin==null?
+           {netMargin:original.netMargin}:{}),
+          ...(sameIncome&&sameBalance&&Number.isFinite(original.quarterlyRoe)&&
+           recent.quarterlyRoe==null?{quarterlyRoe:original.quarterlyRoe}:{})};
+        }
+       }
        if(stored?.metrics){
         const own={stock,industry:company.industry,market:company.market,
          marketDate:payload.finmind.date,metrics:{...stored.metrics,
