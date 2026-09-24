@@ -83,3 +83,101 @@ export async function officialCandidates(perMarket=5,{mode="liquid",exclude=[]}=
    totalEligible:m.totalEligible,sampled:m.date===marketDate?m.stocks.length:0})),
    candidates:successful.filter(m=>m.date===marketDate).flatMap(m=>m.stocks)};
 }
+
+
+/**
+ * 全市場的「官方日行情＋相對估值」初篩。
+ * 逐一掃描兩市場每日行情所有可辨認的四位數股票，不用成交額前幾名當母體。
+ * 缺價、停牌、非四位數、不同日期及暫缺估值者皆列入統計，不宣稱完成深度財報分析。
+ * 僅用公開資料，避免把私人券商資料批量再散布。
+ */
+export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={}){
+ const markets=[
+  {market:"上市",source:"TWSE",quoteUrl:"https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+   ratioUrl:"https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL",
+   code:"Code",name:"Name",close:"ClosingPrice",turnover:"TradeValue",volume:"TradeVolume"},
+  {market:"上櫃",source:"TPEx",quoteUrl:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+   ratioUrl:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis",
+   code:"SecuritiesCompanyCode",name:"CompanyName",close:"Close",
+   turnover:"TransactionAmount",volume:"TradingShares"}
+ ];
+ const jobs=await Promise.allSettled(markets.map(async m=>{
+  const [quotes,ratios]=await Promise.allSettled([fetchJSON(m.quoteUrl),fetchJSON(m.ratioUrl)]);
+  if(quotes.status!=="fulfilled"||!Array.isArray(quotes.value)||!quotes.value.length)
+   throw Error("官方日行情未取得，不使用另一市場冒充全市場");
+  const ratioMap=new Map();
+  if(ratios.status==="fulfilled"&&Array.isArray(ratios.value)){
+   for(const item of ratios.value){
+    const code=String(item.Code??item.SecuritiesCompanyCode??"").trim();
+    if(!/^\\d{4}$/.test(code))continue;
+    ratioMap.set(code,{per:n(item.PEratio??item.PriceEarningRatio),
+     pbr:n(item.PBratio??item.PriceBookRatio),
+     dividendYield:n(item.DividendYield??item.YieldRatio),date:rocDate(item.Date)});
+   }
+  }
+  const seen=new Set(),rows=[];
+  for(const raw of quotes.value){
+   const stock=String(raw[m.code]??"").trim();
+   if(!/^\\d{4}$/.test(stock)||stock.startsWith("00")||seen.has(stock))continue;
+   seen.add(stock);
+   const quoteDate=rocDate(raw.Date),ratio=ratioMap.get(stock)||null;
+   const close=n(raw[m.close]),turnover=n(raw[m.turnover]??raw.TradeValue??raw.TransactionAmount);
+   const volume=n(raw[m.volume]??raw.TradingShares??raw.TradeVolume);
+   rows.push({stock,name:String(raw[m.name]??"").trim(),market:m.market,source:m.source,
+    url:m.quoteUrl,close,date:quoteDate,turnover,volume,
+    screen:ratio&&(!ratio.date||ratio.date===quoteDate)?ratio:null});
+  }
+  const date=rows.map(r=>r.date).filter(Boolean).sort().at(-1)||null;
+  return {market:m.market,date,rows,valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
+   source:m.source,quoteUrl:m.quoteUrl,ratioUrl:m.ratioUrl};
+ }));
+ const successful=jobs.filter(j=>j.status==="fulfilled").map(j=>j.value);
+ const marketDate=successful.map(m=>m.date).filter(Boolean).sort().at(-1)||null;
+ const all=successful.flatMap(m=>m.rows);
+ const sameDate=all.filter(r=>r.date===marketDate);
+ const priced=sameDate.filter(r=>r.close>0&&Number.isFinite(r.close));
+ const affordable=priced.filter(r=>r.close<=priceCeiling);
+ const tradable=affordable.filter(r=>r.turnover>0&&r.volume>0);
+ const warnings=jobs.flatMap((j,i)=>j.status==="rejected"?
+  [markets[i].source+" 官方行情失敗："+String(j.reason?.message||j.reason)]:[]);
+ for(const m of successful)if(!m.valuationAvailable)warnings.push(m.source+" 官方估值暫不可用；不以缺值充作零或低估");
+ if(successful.some(m=>m.date!==marketDate))warnings.push("兩市場日期不同，不跨日合併排行");
+ return {marketDate,marketCount:successful.length,expectedMarketCount:2,
+  markets:successful.map(m=>({market:m.market,date:m.date,total:m.rows.length,
+   valuationAvailable:m.valuationAvailable})),warnings,
+  universeCount:all.length,sameDateCount:sameDate.length,
+  pricedCount:priced.length,affordableCount:affordable.length,
+  tradableCount:tradable.length,excludedOverCeiling:priced.filter(r=>r.close>priceCeiling).length,
+  missingPriceCount:sameDate.length-priced.length,
+  staleMarketCount:all.length-sameDate.length,
+  stocks:tradable};
+}
+
+const validRatio=x=>typeof x==="number"&&Number.isFinite(x)&&x>0;
+const safeYield=x=>typeof x==="number"&&Number.isFinite(x)&&x>=0&&x<=20;
+export function rankUniverseCandidates(rows,mode="daily",limit=5){
+ const scored=rows.map(r=>{
+  const s=r.screen||{},per=validRatio(s.per)?s.per:null,pbr=validRatio(s.pbr)?s.pbr:null,
+   yieldPct=safeYield(s.dividendYield)?s.dividendYield:null;
+  // 本益比無法合理反映虧損股的估值；缺財報與自由現金流時只算「初篩」。
+  const checks=[
+   {label:"本益比 18 倍以下",status:per===null?"unknown":per<=18?"pass":"fail"},
+   {label:"股價淨值比 1.8 倍以下",status:pbr===null?"unknown":pbr<=1.8?"pass":"fail"},
+   {label:"殖利率至少 3%",status:yieldPct===null?"unknown":yieldPct>=3?"pass":"fail"}
+  ];
+  const known=checks.filter(c=>c.status!=="unknown").length,passed=checks.filter(c=>c.status==="pass").length;
+  const ratioCoverage=[per,pbr,yieldPct].filter(x=>x!==null).length;
+  // 僅為可解釋的選股排序鍵，絕非內在價值、投資報酬率或四面向百分制總分。
+  const valuationPoints=(per===null?0:per<=12?4:per<=18?3:per<=25?2:1)+
+   (pbr===null?0:pbr<=1.2?4:pbr<=1.8?3:pbr<=2.5?2:1)+
+   (yieldPct===null?0:yieldPct>=4?3:yieldPct>=3?2:1);
+  const liquidPoints=r.turnover>=100000000?3:r.turnover>=10000000?2:1;
+  return {...r,screening:{per,pbr,dividendYield:yieldPct,checks,passed,known,
+   passedAll:known===3&&passed===3,ratioCoverage,
+   sortingPoints:valuationPoints+(mode==="daily"?liquidPoints:0),
+   liquidityLabel:r.turnover>=100000000?"成交金額較高":r.turnover>=10000000?"成交金額中等":"成交金額較低"}};
+ });
+ return scored.sort((a,b)=>b.screening.sortingPoints-a.screening.sortingPoints||
+  b.screening.ratioCoverage-a.screening.ratioCoverage||
+  b.turnover-a.turnover||a.stock.localeCompare(b.stock)).slice(0,limit);
+}
