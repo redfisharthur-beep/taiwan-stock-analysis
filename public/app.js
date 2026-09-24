@@ -256,7 +256,7 @@ function renderStockCard(stock){
   const badge=el("span","被低估","value-tag");badge.title="符合本站相對估值及已取得財報條件，並非內在價值估算或買入建議";
   name.append(badge);
  }
- body.append(name,el("div",stock.kind==="etf"?"ETF":stock.market,"daily-sub"));
+ body.append(name,el("div",stock.market,"daily-sub"));
  const tags=el("div","","daily-parts");
  if(stock.kind==="etf"){
   tags.append(el("span","成交量 "+showMetric(stock.volume," 股")),
