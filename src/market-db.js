@@ -37,6 +37,7 @@ export async function getMarketSummary(db){
    SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed
    FROM companies WHERE last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
   db.prepare(`SELECT COUNT(p.stock) AS profiles,
+   SUM(CASE WHEN p.market_date=c.quote_date AND c.close>0 THEN 1 ELSE 0 END) AS currentProfiles,
    SUM(CASE WHEN p.financial_period IS NOT NULL THEN 1 ELSE 0 END) AS finance,
    SUM(CASE WHEN p.technical_date IS NOT NULL THEN 1 ELSE 0 END) AS technical,
    SUM(CASE WHEN p.chips_date IS NOT NULL THEN 1 ELSE 0 END) AS chips,
@@ -51,7 +52,8 @@ export async function getMarketSummary(db){
  const total=company?.total||0,profiles=profile?.profiles||0;
  return {configured:true,total,eligible:company?.eligible||0,noQuote:company?.noQuote||0,
   etf:company?.etf||0,attempted:company?.attempted||0,failed:company?.failed||0,
-  profiles,unprocessed:Math.max(0,total-profiles),fullCoverage:profile?.fullCoverage||0,
+  profiles,currentProfiles:profile?.currentProfiles||0,
+  unprocessed:Math.max(0,total-profiles),fullCoverage:profile?.fullCoverage||0,
   finance:profile?.finance||0,technical:profile?.technical||0,
   chips:profile?.chips||0,lastResearch:profile?.lastResearch||null,
   marketDate:original?.date||null,markets:original?.markets||[],
@@ -71,10 +73,14 @@ export async function getVerifiedTopFive(db){
    AND json_extract(p.metrics_json,'$.verified')=1`;
  const stockSql=base+` AND COALESCE(c.industry,'')!='ETF'
    AND json_extract(p.score_json,'$.coveragePercent')=100
-   AND json_extract(p.score_json,'$.score') IS NOT NULL
+   AND json_type(p.score_json,'$.score') IN ('integer','real')
+   AND json_extract(p.score_json,'$.parts.fundamental.covered')=40
+   AND json_extract(p.score_json,'$.parts.technical.covered')=30
+   AND json_extract(p.score_json,'$.parts.chips.covered')=30
    ORDER BY CAST(json_extract(p.score_json,'$.score') AS REAL) DESC,c.stock ASC LIMIT 5`;
  const etfSql=base+` AND c.industry='ETF'
    AND json_extract(p.score_json,'$.parts.technical.covered')=30
+   AND json_type(p.score_json,'$.parts.technical.earned') IN ('integer','real')
    ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5`;
  const [stockRows,etfRows]=await Promise.all([db.prepare(stockSql).all(),db.prepare(etfSql).all()]);
   const stocks=[],etfs=[];
