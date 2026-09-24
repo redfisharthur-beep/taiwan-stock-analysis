@@ -13,7 +13,7 @@ test("newbie homepage uses single daily list and stock keyword query with simple
  assert.match(js,/\["上市股票"/);
  assert.match(js,/\["上櫃股票"/);
  assert.match(js,/\["ETF"/);
- assert.match(js,/stock.kind==="etf"\?"ETF":stock.market/);
+ assert.match(js,/el\("div",stock.market,"daily-sub"\)/);
  assert.doesNotMatch(js,/stock.market\+" · 最近收盤 "/);
  assert.doesNotMatch(html,/想查哪一檔股票？|每日觀察 5 檔|價值投資觀察 5 檔|id="value-list"/);
  assert.match(js,/el\("button","分析","daily-action"\)/);
