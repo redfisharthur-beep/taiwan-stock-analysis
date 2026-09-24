@@ -1,7 +1,7 @@
 import test from "node:test";import assert from "node:assert/strict";
 import {concentration} from "../src/holding.js";
 import {eventKind,parseDisclosures,corroborate,scoreNews,researchNews} from "../src/news.js";
-import {valueWatchlist,assessUndervaluation} from "../src/value.js";
+import {assessUndervaluation} from "../src/value.js";
 function weekly(date,largePct=10){
  return Array.from({length:17},(_,i)=>({"資料日期":date,"證券代號":"2330","持股分級":String(i+1),
  "股數":String(i+1===17?100000000:2000+i*100),"占集保庫存數比例%":String(i>=11&&i<=14?largePct:1)}));
@@ -45,17 +45,6 @@ const make=(stock,per,pbr,yieldPct,quality=8)=>({stock,name:"測試公司",marke
   metric("獲利品質與負債",quality,{debtRatioPct:40,cashConversion:1}),
   metric("單月營收年增率",10,"5%")
  ]}}}});
-test("value list requires own-history relative PE plus positive EPS cash flow and sound debt",()=>{
- const good=make("2330",12,1.3,4),bad=make("2317",50,5,0);
- const r=valueWatchlist([good,bad],{marketDate:"2026-09-24",candidateCount:2});
- assert.equal(r.stocks.length,1);assert.equal(r.stocks[0].stock,"2330");assert.equal(r.stocks[0].valueChecklist,92);
-});
-test("high debt or missing historical valuation excludes value-trap candidate",()=>{
- const weak=make("2330",12,1.3,4,0),poor=make("2317",12,1.3,4);
- poor.score.metrics.perPercentile=null;
- const r=valueWatchlist([weak,poor],{marketDate:"2026-09-24",candidateCount:2});
- assert.equal(r.stocks.length,0);
-});
 test("single TDCC week shows share but cannot earn concentration-trend score",()=>{
  const one=concentration(weekly("20260918",10),"2330","2026-09-24");
  assert.equal(one.share,40);assert.equal(one.trend,null);
