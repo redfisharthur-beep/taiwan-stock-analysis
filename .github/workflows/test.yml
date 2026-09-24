@@ -17,4 +17,5 @@ jobs:
       - run: node --check public/app.js
       - run: node --check public/chart.js
       - run: node --check src/ranking.js
+      - run: node --check src/goodinfo.js
       - run: npm test
