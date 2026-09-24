@@ -123,7 +123,7 @@ async function performScheduled(controller,env){
  if(!env.FINMIND_TOKEN)return;
  const row=await claimNextCompany(db);
  if(!row)return;
- const held=await savedHolding(db,row.stock);
+ const held=await savedHolding(db,row.stock,row.date);
  const override={market:row.market,source:row.market==="上市"?"TWSE":"TPEx",name:row.name,
   close:row.close,date:row.date,url:row.market==="上市"?
    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
