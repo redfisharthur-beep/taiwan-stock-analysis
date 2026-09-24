@@ -22,7 +22,17 @@ async function analyze(stock,env,override=null,shared=null){
  if(data[0].status==="rejected")return reply({error:"FinMind 歷史行情取得失敗，已停止評分。",warnings},503);
  const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
  const clean=normalize(rows(0),rows(1),rows(2),rows(3),rows(4),rows(5),rows(6),rows(7),rows(8));
- if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings},404);
+ const datasetHealth=datasets.map(([name],i)=>{
+   const r=data[i];
+   const records=r.status==="fulfilled"?r.value:[];
+   const dates=records.map(x=>String(x?.date||"")).filter(x=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x));
+   const latestDate=dates.sort().at(-1)||null;
+   return {name,status:r.status==="rejected"?"error":records.length?"ok":"empty",
+     records:records.length,latestDate,
+     message:r.status==="rejected"?String(r.reason?.message||"資料來源錯誤"):
+       records.length?"已取得資料":"來源成功回應，但此股票／期間沒有資料"};
+ });
+ if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings,datasetHealth},404);
  const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
  const verification=reconcile(official,clean.prices);
@@ -43,7 +53,10 @@ async function analyze(stock,env,override=null,shared=null){
  const links={twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
  return reply({stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
-  score,candles,holding,newsResearch,valuationLatest:clean.valuation.filter(v=>v.date<=marketDate&&
+  score,candles,holding,newsResearch,datasetHealth,
+  missingMetrics:Object.entries(score.parts).flatMap(([group,part])=>
+    part.items.filter(item=>item.score===null).map(item=>({group,name:item.name,reason:item.note||"來源資料不足"}))),
+  valuationLatest:clean.valuation.filter(v=>v.date<=marketDate&&
     (Date.parse(marketDate+"T00:00:00Z")-Date.parse(v.date+"T00:00:00Z"))/86400000<=10)
     .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
   sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links});
@@ -104,10 +117,10 @@ async function computeTopFive(env,mode="score",exclude=[]){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"on_demand_no_database",version:"0.9.0",time:new Date().toISOString()});
+  rankingMode:"on_demand_no_database",version:"0.10.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.9");
+  const key=new Request(url.origin+"/api/top5?model=0.10");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env),response=reply(body,200,1800);
@@ -120,7 +133,7 @@ export default {async fetch(request,env,ctx){
   const exclusion=(url.searchParams.get("exclude")||"").split(",").filter(v=>
    v.length===4&&[...v].every(ch=>ch>="0"&&ch<="9")).slice(0,5);
   const exclude=[...new Set(exclusion)].sort();
-  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.9"),
+  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.10"),
    cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
