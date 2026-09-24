@@ -67,8 +67,12 @@ async function computeTopFive(env){
  const [listedNews,otcNews]=await Promise.allSettled([
   loadOfficialDisclosures("上市"),loadOfficialDisclosures("上櫃")
  ]);
+ let tdccRows=[];
+ if(perMarket===5){
+  try{tdccRows=await getHoldingRows()}catch(error){console.warn("TDCC daily batch unavailable",String(error.message||error))}
+ }
  const shared={
-  tdccRows:[],bulk:true,
+  tdccRows,bulk:perMarket!==5,
   newsByMarket:{
    "上市":listedNews.status==="fulfilled"?listedNews.value:{rows:[],error:"上市公告來源暫時不可用"},
    "上櫃":otcNews.status==="fulfilled"?otcNews.value:{rows:[],error:"上櫃公告來源暫時不可用"}
@@ -91,7 +95,7 @@ async function computeTopFive(env){
  const value=valueWatchlist(good,{marketDate:official.marketDate,candidateCount:selected.length});
  return {ready:true,...ranking,value,asOf:new Date().toISOString(),
   sourceWarnings:[...official.warnings,...failed,
-    "每日觀察清單未批次下載 TDCC 大型週資料；點開個股時才嘗試官方股權集中度核對。"],
+    ...(perMarket===3?["目前為免費額度模式：首頁不批次取得 TDCC 與授權新聞；點開個股才查證。"]:[])],
   markets:official.markets,
   reason:ranking.stocks.length?
    "僅比較官方依成交金額預篩的 "+selected.length+" 檔候選股票，非全市場完整四面向最高分前五。":
