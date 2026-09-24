@@ -1,6 +1,6 @@
 // The company registry is authoritative for common shares. ETF identities are checked
 // separately using the official market quote and, where available, fund registry.
-export const tickerPattern=/^[0-9A-Z]{4,6}$/;
+export const tickerPattern=/^[0-9]{4}[0-9A-Z]{0,2}$/;
 export const isCompanyCode=code=>/^[0-9]{4}$/.test(code)&&!code.startsWith("00");
 export const isETFCandidate=code=>/^00[0-9A-Z]{2,4}$/.test(code);
 export function securityKind(code,{company=false,fund=false,quotedName=""}={}){
