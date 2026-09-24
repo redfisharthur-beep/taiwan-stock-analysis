@@ -175,12 +175,12 @@ export function scoreStock({
   part("均線趨勢",6,tech===null?null:tech.close>tech.ma20&&tech.ma20>tech.ma60?6:tech.close>tech.ma20?4:1,
    tech?{close:tech.close,ma20:tech.ma20,ma60:tech.ma60}:null,tech?.date,tech?technicalSource:null,techNote),
   part("RSI(14)",3,tech===null?null:tech.rsi>=45&&tech.rsi<=65?3:
-   tech.rsi>70||tech.rsi<30?1:2,tech?.rsi,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+   tech.rsi>70||tech.rsi<30?1:2,tech?.rsi,tech?.date,tech?technicalSource:null,techNote),
   part("MACD",3,tech===null?null:tech.macd>tech.signal?3:1,
-   tech?{macd:tech.macd,signal:tech.signal,cross:tech.macdCross}:null,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+   tech?{macd:tech.macd,signal:tech.signal,cross:tech.macdCross}:null,tech?.date,tech?technicalSource:null,techNote),
   part("量價",3,tech?.volumeRatio===null||!tech?null:
    tech.volumeRatio>=1.2&&tech.close>tech.ma20?3:tech.volumeRatio<.5?1:2,
-   tech?.volumeRatio,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+   tech?.volumeRatio,tech?.date,tech?technicalSource:null,techNote),
   part("波動幅度與60日最大回撤",5,riskScore,tech?
    {annualizedVolatility20Pct:tech.volatility20,maxDrawdown60Pct:tech.maxDrawdown60}:null,
    tech?.date,tech?technicalSource:null,
