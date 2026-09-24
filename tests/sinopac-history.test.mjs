@@ -32,7 +32,7 @@ test("broker technical rescue uses only corroborated full historical prices and 
  const r=scoreStock({prices:[{date,close:102,volume:12345}],brokerTechnicalPrices:bars.map(x=>({
   date:x.date,open:x.open,high:x.high,low:x.low,close:x.close,volume:null}))});
  assert.equal(r.technicalMode,"broker_raw");
- assert.equal(r.parts.technical.covered,17);
+ assert.equal(r.parts.technical.covered,25);
  assert.equal(r.parts.technical.items.find(x=>x.name==="量價").score,null);
  assert.equal(r.parts.news.covered,0);
 });
