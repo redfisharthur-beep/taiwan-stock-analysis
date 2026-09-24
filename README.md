@@ -1,3 +1,15 @@
+# v0.12：永豐改由後端自動核對，移除私人測試介面
+
+已移除網頁中的「永豐 Shioaji 私人行情測試」密碼框及 Cloudflare 測試 API；Render 也不再提供舊的快照測試端點。**使用者進入個股詳細頁時，Cloudflare 後端會使用既有 Render 通行碼，在獨立服務上向永豐查詢已完成交易日的歷史分 K，彙整為未還原日線，交叉核對 TWSE／TPEx 官方及 FinMind 的同交易日收盤價。** 只回傳來源核對狀態，不向公開網站發送永豐原始行情。舊的 `SJ_OWNER_TEST_TOKEN` 可從 Cloudflare 移除。
+
+- Render 需要從 GitHub main 重新部署新程式；`/health` 應顯示 `version:"0.2.0"`。Cloudflare 需重新部署新版；`/api/health` 應顯示 `version:"0.12.0"` 和 `brokerAutomaticCheck:true`。部署成功**不代表**已取得有效永豐歷史 K 線；請在個股頁下方「資料來源與更新說明」查看自動核對狀態。未取得永豐資料時原有官方及 FinMind 分析繼續運作。
+- 僅當你的 Shioaji 個人行情契約**明確允許向其他訪客再展示或公開衍生分析**時，才可在 Cloudflare 加上 `SJ_MARKET_DATA_REDISPLAY_APPROVED=true`。在該設定下，FinMind 還原／原始歷史不足 61 筆、永豐完整日線至少 61 筆且最新同日價格經官方與 FinMind 三方核對時，可將永豐日線作為**未還原技術指標後備**。因券商分 K 成交量單位未驗證，量價子項仍不計分，最多補技術面 17／20 權重，並不代表個股分數增加 17 分。
+- 永豐 Shioaji 行情不會提供本站需要的 EPS、月營收、財報負債、法人買賣、集保戶分散度或獨立新聞真實性查核；不能單靠多一個行情 API 就補滿基本面／消息面／籌碼面。考慮個人帳戶查詢限制，**目前永豐僅在個股詳細分析時作後端同日核對，不會為首頁所有榜單候選股輪詢券商行情**；這也不是即時推播服務。
+- 不用提供任何永豐金鑰給本專案的公開前端；`SJ_API_KEY` 和 `SJ_SEC_KEY` 仍只放 Render 的 Secret，Cloudflare 只需 `SJ_GATEWAY_URL` 及 `SJ_BRIDGE_TOKEN`。既有 FinMind 分數與新聞資料規則維持；缺資料不灌分，不用 D1。
+
+詳見 [Render 自動核對設定與限制](sinopac_gateway/README.md)。
+
+---
 # v0.11：永豐 Shioaji 已加入私人雲端連線程式（待你在 Render 設金鑰部署）
 
 已於同一 GitHub 倉庫新增 `sinopac_gateway/`（Render Python 3.11 + FastAPI + Shioaji 唯讀快照服務），以及 Cloudflare `src/sinopac.js` 與網站個股頁「永豐 Shioaji 私人行情測試」。**你不需要讓家裡電腦開機，也不需要 D1。**
