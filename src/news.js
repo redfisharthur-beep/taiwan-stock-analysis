@@ -48,10 +48,14 @@ async function retrieve(url,init={},max=2500000){
   return JSON.parse(new TextDecoder().decode(bytes));
  }finally{clearTimeout(timer)}
 }
-export async function officialNews(stock,marketDate,market){
+export async function loadOfficialDisclosures(market){
  const url=market==="上市"?OFFICIAL.listed:OFFICIAL.otc;
- try{const data=await retrieve(url);return {events:parseDisclosures(data,stock,marketDate,"MOPS（"+market+"）",url),error:null}}
- catch(e){return {events:[],error:"重大訊息來源暫無法讀取："+String(e.message||e)}}
+ try{return {rows:await retrieve(url),error:null}}catch(e){return {rows:[],error:"重大訊息來源暫無法讀取："+String(e.message||e)}}
+}
+export async function officialNews(stock,marketDate,market,prefetched=null){
+ const url=market==="上市"?OFFICIAL.listed:OFFICIAL.otc;
+ const fetched=prefetched??await loadOfficialDisclosures(market);
+ return {events:parseDisclosures(fetched.rows,stock,marketDate,"MOPS（"+market+"）",url),error:fetched.error};
 }
 const PUBLISHERS=new Set(["中央社","MoneyDJ 理財網","Reuters 路透社"]);
 export function corroborate(events,articles,stock){
@@ -79,8 +83,8 @@ export function scoreNews(events){
      note:"有不同原始採訪或發稿來源；同一篇轉載不重複計數"}],
    events,sourceCount:current.evidence.length+1};
 }
-export async function researchNews(stock,marketDate,market,env){
- const official=await officialNews(stock,marketDate,market);
+export async function researchNews(stock,marketDate,market,env,prefetched=null){
+ const official=await officialNews(stock,marketDate,market,prefetched);
  let articles=[],feedError=null;
  if(env.NEWS_FEED_URL&&env.NEWS_FEED_TOKEN){
   try{const src=new URL(env.NEWS_FEED_URL);
