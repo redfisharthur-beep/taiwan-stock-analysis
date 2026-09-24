@@ -110,7 +110,8 @@ test("industry event requires a licensed feed and two original publishers matchi
   const result=await researchNews("2330","2026-09-24","上市",env,{rows:[],error:null},"台積電");
   assert.equal(result.items.find(x=>x.name==="產業事件").score,2);
   const scored=scoreStock({prices:[{date:"2026-09-24",close:100,volume:1000}],newsResearch:result});
-  assert.equal(scored.parts.news.items.find(x=>x.name==="產業事件").score,2);
+  assert.equal(scored.parts.news.covered,0);
+  assert.equal(scored.newsDelta,0);
   articles=[a];
   const insufficient=await researchNews("2330","2026-09-24","上市",env,{rows:[],error:null},"台積電");
   assert.equal(insufficient.items.find(x=>x.name==="產業事件"),undefined);
