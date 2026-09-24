@@ -108,7 +108,10 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
    rows.splice(0,rows.length,...rows.filter(r=>r.kind==="etf"||r.kind==="stock"));
   }
   const date=rows.map(r=>r.date).filter(Boolean).sort().at(-1)||null;
-  return {market:m.market,date,rows,registryAvailable,registryTotal,valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
+  return {market:m.market,date,rows,registryAvailable,registryTotal,
+   registryError:registry.status==="rejected"?String(registry.reason?.message||registry.reason).slice(0,240):
+    registryAvailable?null:"公司名冊回應空白或格式無法辨識",
+   valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
    source:m.source,quoteUrl:m.quoteUrl,ratioUrl:m.ratioUrl};
  }));
  const successful=jobs.filter(j=>j.status==="fulfilled").map(j=>j.value);
@@ -129,7 +132,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
  if(successful.some(m=>m.date!==marketDate))warnings.push("兩市場日期不同，不跨日合併排行");
  return {marketDate,marketCount:successful.length,expectedMarketCount:2,
   markets:successful.map(m=>({market:m.market,date:m.date,total:m.rows.length,registryAvailable:m.registryAvailable,
-   valuationAvailable:m.valuationAvailable})),warnings,
+   registryError:m.registryError,valuationAvailable:m.valuationAvailable})),warnings,
   universeCount:all.length,sameDateCount:sameDate.length,
   pricedCount:priced.length,affordableCount:affordable.length,
   tradableCount:tradable.length,excludedOverCeiling:priced.filter(r=>r.close>=priceCeiling).length,
