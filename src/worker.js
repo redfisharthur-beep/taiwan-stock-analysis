@@ -1,4 +1,4 @@
-import {finmind,officialQuote,officialCandidates,normalize,reconcile} from "./providers.js";
+import {finmind,officialQuote,officialCandidates,scanOfficialUniverse,rankUniverseCandidates,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
 import {selectDailyLeaders} from "./ranking.js";
 import {getHoldingRows,concentration} from "./holding.js";
@@ -88,90 +88,95 @@ async function analyze(stock,env,override=null,shared=null){
     .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
   sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links});
 }
-// 免 D1：每次快取到期直接由官方最新行情選出流動性候選，再逐檔核對 FinMind。
-// 樣本範圍 10 檔，不能宣稱為全台股綜合得分最高前五。
-async function computeTopFive(env,mode="score",exclude=[]){
- if(!env.FINMIND_TOKEN)return {ready:false,reason:"尚未設定 FINMIND_TOKEN Secret；未產生榜單。",
-  marketDate:null,stocks:[]};
- // Free Workers: at most five candidates × nine FinMind requests + two market endpoints.
- // Value mode adds two valuation endpoints; keep below 50 external requests if no redirects.
- const perMarket=env.FULL_SCREENING_ENABLED==="true"?5:3;
- const official=await officialCandidates(perMarket,{mode:mode==="value"?"value":"liquid",exclude});
- if(!official.candidates.length)return {ready:false,reason:"尚未取得帶有有效交易日期的官方行情，無法產生今日觀察名單。",
-  marketDate:official.marketDate,sourceWarnings:official.warnings,stocks:[]};
- const selected=env.FULL_SCREENING_ENABLED==="true"?official.candidates:official.candidates.slice(0,5);
- // Each official open-data file is requested once per daily computation, not once per stock.
- const [listedNews,otcNews]=env.FULL_SCREENING_ENABLED==="true"?
-  await Promise.allSettled([loadOfficialDisclosures("上市"),loadOfficialDisclosures("上櫃")]):
-  [{status:"fulfilled",value:{rows:[],error:"首頁樣本不批次讀取公告；點入個股時核對"}},
-   {status:"fulfilled",value:{rows:[],error:"首頁樣本不批次讀取公告；點入個股時核對"}}];
- let tdccRows=[];
- if(perMarket===5){
-  try{tdccRows=await getHoldingRows()}catch(error){console.warn("TDCC daily batch unavailable",String(error.message||error))}
- }
- const shared={
-  tdccRows,bulk:perMarket!==5,
-  newsByMarket:{
-   "上市":listedNews.status==="fulfilled"?listedNews.value:{rows:[],error:"上市公告來源暫時不可用"},
-   "上櫃":otcNews.status==="fulfilled"?otcNews.value:{rows:[],error:"上櫃公告來源暫時不可用"}
+// 一次掃描兩市場官方行情及估值的所有當日四位數個股；每組再選 5 檔做深入資料核對。
+// 免費 Worker 每次 50 次外部請求上限：4 次官方全市場資料 + 5×9 次 FinMind = 49 次。
+// 若 FinMind 或官方資料缺漏，依真實初篩資料顯示，但絕不冒充已完成 100 分評估。
+async function computeTopFive(env,mode="daily",exclude=[]){
+ const universe=await scanOfficialUniverse({priceCeiling:500});
+ const candidates=rankUniverseCandidates(universe.stocks.filter(r=>!exclude.includes(r.stock)),mode,5);
+ const marketComplete=universe.marketCount===universe.expectedMarketCount&&
+  universe.markets.every(m=>m.date===universe.marketDate);
+ const base={ready:candidates.length>0,marketDate:universe.marketDate,
+  asOf:new Date().toISOString(),priceCeiling:500,
+  universe:{total:universe.universeCount,sameDate:universe.sameDateCount,
+   priced:universe.pricedCount,underCeiling:universe.affordableCount,
+   tradable:universe.tradableCount,overCeiling:universe.excludedOverCeiling,
+   missingPrice:universe.missingPriceCount,staleMarket:universe.staleMarketCount,
+   marketComplete,markets:universe.markets,scope:"官方當日行情可辨認的四位數上市／上櫃股票"},
+  markets:universe.markets,sourceWarnings:universe.warnings,
+  scope:"whole_official_daily_universe_prescreen",
+  analyzedCount:0,candidateCount:candidates.length,stocks:[]};
+ if(!candidates.length)return {...base,reason:"官方當日行情尚未形成符合價格與成交條件的候選；沒有以舊日資料冒充今日資料。"};
+ const shared={tdccRows:[],bulk:true,newsByMarket:{
+  "上市":{rows:[],error:"批次未逐檔核對重大訊息；請進入個股確認"},
+  "上櫃":{rows:[],error:"批次未逐檔核對重大訊息；請進入個股確認"}}};
+ const investigated=new Map();
+ if(env.FINMIND_TOKEN){
+  // 不同股票的個股資料缺漏不應阻止其餘名單顯示。
+  for(const row of candidates){
+   try{
+    const res=await analyze(row.stock,env,row,shared);
+    if(res.ok)investigated.set(row.stock,await res.json());
+   }catch(error){console.warn("daily research failed for",row.stock,String(error.message||error))}
   }
- };
- const results=[];
- // 小批量連線，避免同時向 API 傳送大量請求；仍需注意各帳戶配額。
- for(let i=0;i<selected.length;i+=2){
-  const pair=await Promise.allSettled(selected.slice(i,i+2).map(async row=>{
-   const res=await analyze(row.stock,env,row,shared);
-   if(!res.ok)return {stock:row.stock,error:"分析資料暫不可用（HTTP "+res.status+"）"};
-   return await res.json();
-  }));
-  results.push(...pair.map((p,j)=>p.status==="fulfilled"?p.value:
-   {stock:selected[i+j].stock,error:String(p.reason?.message||p.reason)}));
  }
- const good=results.filter(r=>r&&r.stock&&r.score);
- const ranking=selectDailyLeaders(good,{marketDate:official.marketDate,candidateCount:selected.length});
- const failed=results.filter(r=>r.error).map(r=>r.stock+"："+r.error);
- const value=valueWatchlist(good,{marketDate:official.marketDate,candidateCount:selected.length});
- return {ready:true,...ranking,value,asOf:new Date().toISOString(),
-  sourceWarnings:[...official.warnings,...failed,
-    ...(perMarket===3?["目前為免費額度模式：首頁不批次取得 TDCC 與授權新聞；點開個股才查證。"]:[])],
-  markets:official.markets,
-  reason:mode==="value"?
-   "僅比較官方本益比／淨值比預篩的 "+selected.length+" 檔候選股票，並檢查 EPS 與現金流；不是內在價值排名。":
-   ranking.stocks.length?
-   "僅比較官方依成交金額預篩的 "+selected.length+" 檔候選股票，非全市場完整四面向最高分前五。":
-   "此次候選股尚未取得足夠的同交易日、同評分口徑資料，未產生五檔名單。"};
+ const stocks=candidates.map((row,i)=>{
+  const deep=investigated.get(row.stock)||null,validDeep=deep&&
+   deep.verification?.state==="一致"&&deep.official?.date===universe.marketDate&&
+   deep.finmind?.date===universe.marketDate;
+  const fs=validDeep?deep.score?.parts?.fundamental?.items||[]:[];
+  const eps=fs.find(x=>x.name==="EPS 與去年同季");
+  const cash=fs.find(x=>x.name==="營業現金流（初步）");
+  const leverage=fs.find(x=>x.name==="獲利品質與負債");
+  const checkNotes=[
+   {label:"EPS 為正",status:!validDeep||eps?.value?.eps===undefined?"unknown":eps.value.eps>0?"pass":"fail"},
+   {label:"營業現金流為正",status:!validDeep||typeof cash?.value!=="number"?"unknown":cash.value>0?"pass":"fail"},
+   {label:"財務負債初步檢查",status:!validDeep||leverage?.value?.debtRatioPct==null?
+    "unknown":leverage.value.debtRatioPct<=70?"pass":"fail"}];
+  const checks=[...row.screening.checks,...checkNotes];
+  const allKnown=checks.every(c=>c.status!=="unknown"),passAll=allKnown&&checks.every(c=>c.status==="pass");
+  return {rank:i+1,stock:row.stock,name:row.name,market:row.market,date:row.date,
+   close:row.close,turnover:row.turnover,screening:row.screening,checks,
+   passedAll:passAll,criteriaMet:checks.filter(x=>x.status==="pass").length,
+   criteriaKnown:checks.filter(x=>x.status!=="unknown").length,
+   detailVerified:!!validDeep,observedPoints:validDeep?deep.score.observedPoints:null,
+   coveredPoints:validDeep?deep.score.coveredPoints:0,
+   parts:validDeep?Object.fromEntries(Object.entries(deep.score.parts).map(([k,v])=>
+    [k,{earned:v.earned,covered:v.covered,max:v.max}])):null,
+   reason:mode==="value"?
+    passAll?"初步估值與已取得的財務條件符合設定門檻；未推估內在價值":
+    "依可取得的官方估值相對排序；未通過或未取得的檢查請看下方標籤":
+    "官方當日收盤價 500 元以下；參考估值與成交金額進行全市場初篩"};
+ });
+ return {...base,stocks,analyzedCount:investigated.size,
+  strictCount:stocks.filter(s=>s.passedAll).length,
+  reason:marketComplete?
+   "已讀取兩市場當日四位數股票行情，對符合價格與成交條件者逐檔進行官方初篩；僅名單內股票嘗試九項 FinMind 深入核對。":
+   "當日兩市場行情未同時齊備；目前名單僅根據可用市場初篩，不可視為完整市場比較。"};
 }
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"on_demand_no_database",sinopacConfigured:sinopacReady(env),
+  rankingMode:"whole_market_daily_prescreen_five_deep_research",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.12.1",time:new Date().toISOString()});
- if(url.pathname==="/api/top5"){
-  const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.12.1");
-  const hit=await cache.match(key);if(hit)return hit;
-  try{
-   const body=await computeTopFive(env),response=reply(body,200,1800);
-   if(body.ready&&body.stocks.length)ctx.waitUntil(cache.put(key,response.clone()));
-   return response;
-  }catch(err){return reply({ready:false,stocks:[],reason:"官方資料或分析 API 連線異常；未產生推薦名單。",
-   detail:String(err.message||err)},503)}
- }
- if(url.pathname==="/api/value5"){
-  const exclusion=(url.searchParams.get("exclude")||"").split(",").filter(v=>
-   v.length===4&&[...v].every(ch=>ch>="0"&&ch<="9")).slice(0,5);
+  version:"0.13.0",time:new Date().toISOString()});
+ if(url.pathname==="/api/top5"||url.pathname==="/api/value5"){
+  const isValue=url.pathname==="/api/value5";
+  // 排除參數限特定查詢用途；首頁價值名單不排除每日名單。
+  const exclusion=isValue?(url.searchParams.get("exclude")||"").split(",").filter(v=>
+   /^[0-9]{4}$/.test(v)).slice(0,5):[];
   const exclude=[...new Set(exclusion)].sort();
-  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.12"),
+  const key=new Request(url.origin+url.pathname+"?exclude="+exclude.join(",")+"&model=0.13.0"),
    cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
-   const body=await computeTopFive(env,"value",exclude),response=reply(body,200,1800);
+   const body=await computeTopFive(env,isValue?"value":"daily",exclude);
+   const response=reply(body,200,1800);
    if(body.ready)ctx.waitUntil(cache.put(key,response.clone()));
    return response;
-  }catch(err){return reply({ready:false,value:{stocks:[]},reason:"價值觀察資料暫無法取得。",
-    detail:String(err.message||err)},503)}
+  }catch(err){return reply({ready:false,stocks:[],reason:"全市場官方資料或分析 API 連線異常，沒有使用舊資料補排名。",
+   detail:String(err.message||err)},503)}
  }
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
