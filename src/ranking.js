@@ -3,7 +3,7 @@ const KEYS=["fundamental","news","chips","technical"];
 export function coverageSignature(score){
  if(!score?.parts)return "";
  return KEYS.flatMap(key=>(score.parts[key]?.items||[]).filter(x=>x.score!==null)
-   .map(x=>key+":"+x.name)).join("|");
+   .map(x=>key+":"+x.name)).join("|")+"|techPriceMode:"+(score.technicalMode||"unknown");
 }
 export function explainHighScore(item){
  const v=item.value;
