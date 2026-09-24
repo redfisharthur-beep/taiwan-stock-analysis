@@ -1,10 +1,10 @@
 import {finmind,officialQuote,officialCandidates,normalize,reconcile} from "./providers.js";
-import {scoreStock} from "./scoring.js";
+import {scoreStock,indicators} from "./scoring.js";
 import {selectDailyLeaders} from "./ranking.js";
 import {getHoldingRows,concentration} from "./holding.js";
 import {loadOfficialDisclosures,researchNews} from "./news.js";
 import {valueWatchlist} from "./value.js";
-import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory} from "./sinopac.js";
+import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
@@ -50,11 +50,12 @@ async function analyze(stock,env,override=null,shared=null){
  // into repeated historical polling of a personal brokerage connection.
  let brokerVerification={state:sinopacReady(env)?"not_checked":"not_configured",
   reason:"首頁批次不查詢券商，個股將盡力對照已完成交易日"};
- let brokerTechnicalPrices=[];
+ let brokerTechnicalPrices=[],brokerBars=[];
  if(!override&&sinopacReady(env)&&official?.date&&verification.state==="一致"&&
     /^[0-9]{4}$/.test(stock)){
    const broker=await privateBrokerHistory(stock,official.date,env);
    brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
+   if(broker.status==="ok")brokerBars=broker.bars;
    // Permission must be explicitly verified before brokerage-derived history is
    // used for any publicly rendered indicator. No broker prices are ever serialized.
    if(env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&
@@ -62,6 +63,13 @@ async function analyze(stock,env,override=null,shared=null){
      brokerTechnicalPrices=broker.bars;
  }
  const score=scoreStock({...clean,official,holding,newsResearch,brokerTechnicalPrices});
+ if(brokerVerification.state==="matched"&&brokerBars.length>=61&&score.technicalMode==="raw"){
+   const brokerIndicators=indicators(brokerBars);
+   brokerVerification.indicatorReview=compareRawTechnicalIndicators(score.indicators,brokerIndicators);
+ }else if(brokerVerification.state==="matched"&&score.technicalMode==="adjusted"){
+   brokerVerification.indicatorReview={state:"not_comparable",
+    reason:"FinMind 使用除權息還原價、永豐使用未還原日線；不能直接比較技術指標數值"};
+ }
  if(verification.state!=="一致"||official?.date!==clean.prices.at(-1)?.date)score.score=null;
  const latest=clean.prices.at(-1);
  const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&
@@ -71,6 +79,7 @@ async function analyze(stock,env,override=null,shared=null){
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
   score,candles,holding,newsResearch,datasetHealth,
   brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason,
+   indicatorReview:brokerVerification.indicatorReview||null,
    useInPublicScoring:env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&brokerVerification.state==="matched"},
   missingMetrics:Object.entries(score.parts).flatMap(([group,part])=>
     part.items.filter(item=>item.score===null).map(item=>({group,name:item.name,reason:item.note||"來源資料不足"}))),
