@@ -12,7 +12,7 @@ const item=(name,max,score,value,date,source,note)=>({name,max,score:finite(scor
 const dayDiff=(a,b)=>a&&b&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(a)&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(b)?
   Math.round((Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/86400000):null;
 const fresh=(marketDate,dataDate,days)=>{const age=dayDiff(marketDate,dataDate);return age!==null&&age>=0&&age<=days};
-export function scoreStock({prices=[],revenues=[],financials=[],institutional=[],official=null,valuation=[],cashFlows=[],margin=[]}){
+export function scoreStock({prices=[],revenues=[],financials=[],institutional=[],official=null,valuation=[],cashFlows=[],margin=[],holding=null,newsResearch=null}){
  const tech=indicators(prices), latest=prices.at(-1)||null, lastRev=[...revenues].sort((a,b)=>a.date.localeCompare(b.date)).at(-1), earlier=lastRev&&revenues.find(r=>Number(r.revenue_year)===Number(lastRev.revenue_year)-1&&Number(r.revenue_month)===Number(lastRev.revenue_month));
  const yoy=lastRev&&earlier&&num(earlier.revenue)>0?((num(lastRev.revenue)/num(earlier.revenue))-1)*100:null;
  const epsRows=financials.filter(r=>String(r.type).toLowerCase()==="eps"&&finite(num(r.value))).sort((a,b)=>a.date.localeCompare(b.date));const eps=epsRows.at(-1)||null;
@@ -31,13 +31,28 @@ export function scoreStock({prices=[],revenues=[],financials=[],institutional=[]
  const financeChange=marginLatest?num(marginLatest.financing)-num(marginLatest.previousFinancing):null;
  const financeChangePct=marginLatest&&num(marginLatest.previousFinancing)>0?financeChange/num(marginLatest.previousFinancing)*100:null;
  const marginScore=financeChange===null?null:financeChange<0?(financeChangePct!==null&&financeChangePct<=-2?5:4):financeChange===0?2:1;
+ const largeShare=holding?.share;
+ const deltaShare=holding?.change;
+ const concentrationScore=typeof largeShare==="number"&&largeShare>=0&&largeShare<=100?
+  deltaShare!==null&&deltaShare!==undefined&&deltaShare>=2&&largeShare>=50?5:
+  deltaShare!==null&&deltaShare!==undefined&&deltaShare>=1&&largeShare>=35?4:
+  largeShare>=35?3:largeShare>=20?2:1:null;
+ const matchedEvent=name=>newsResearch?.items?.find(x=>x.name===name)||null;
+ const officialEvent=matchedEvent("重大公告與事件"),independentEvent=matchedEvent("獨立新聞來源");
  const fundamental=[
  item("單月營收年增率",15,yoy===null?null:yoy>=20?15:yoy>=10?12:yoy>=0?9:yoy>=-10?5:1,yoy===null?null:round(yoy)+"%",lastRev?.date,"FinMind","同月份與前一年比較"),
  item("單季 EPS",15,eps===null?null:num(eps.value)>0?num(eps.value)>=5?15:10:0,eps?num(eps.value):null,eps?.date,"FinMind","EPS 絕對值僅供初步觀察，未作同產業比較"),
  item("營業現金流（初步）",10,cashScore,cashValue,cash?.date,cash?"FinMind":"",cash?"最近一期營業現金流；正數獲7分，同期年增再加3分，尚未納入完整負債比。":"最近180天無可用營業現金流資料"),
  item("估值／本益比",10,pe===null?null:pe<=12?10:pe<=20?7:pe<=35?4:1,pe,val?.date,val?"FinMind":"",val?"採最近10日內的 PER；尚未做產業比較，虧損公司不適用。":"最近10日無可用正數 PER，未給分")];
- const news=[item("重大公告與事件",5,null,null,null,null,"尚未提供自動化事實核對"),item("獨立新聞來源",3,null,null,null,null,"尚未取得授權的新聞資料"),item("產業事件",2,null,null,null,null,"尚未完成產業事件比對")];
- const chips=[item("近五交易日法人淨買賣",10,flows===null?null:flows>0?8:flows===0?5:2,flows,dates.at(-1),"FinMind","各類法人合計；尚未按流通股數標準化"),item("股權集中度",5,null,null,null,null,"尚未連結 TDCC 週資料"),item("融資餘額變化",5,marginScore,financeChange,marginLatest?.date,marginLatest?"FinMind":"",marginLatest?"以單日融資餘額增減作初步觀察，不代表買賣訊號；融券資訊僅保留原始數據。":"最近10日沒有可用融資融券資料")];
+ const news=[item("重大公告與事件",5,officialEvent?.score??null,officialEvent?.value??null,
+ officialEvent?.date,officialEvent?.source,officialEvent?.note||"尚無完成跨來源查證的明確重大事件；沒有新聞不等於沒有風險"),
+ item("獨立新聞來源",3,independentEvent?.score??null,independentEvent?.value??null,
+ independentEvent?.date,independentEvent?.source,independentEvent?.note||"中央社、MoneyDJ、Reuters 等原始授權新聞尚未完成同事件核對"),
+ item("產業事件",2,null,null,null,null,"尚無跨來源確認的產業事件，暫不給分")];
+ const chips=[item("近五交易日法人淨買賣",10,flows===null?null:flows>0?8:flows===0?5:2,flows,dates.at(-1),"FinMind","各類法人合計；尚未按流通股數標準化"),item("400張以上股權集中度",5,concentrationScore,
+ holding?{largeHolderPct:holding.share,weeklyChangePct:holding.change}:null,
+ holding?.date,holding?.source||null,
+ holding?.note||"尚未從 TDCC 官方每週股權分散表取得有效資料，暫不給分"),item("融資餘額變化",5,marginScore,financeChange,marginLatest?.date,marginLatest?"FinMind":"",marginLatest?"以單日融資餘額增減作初步觀察，不代表買賣訊號；融券資訊僅保留原始數據。":"最近10日沒有可用融資融券資料")];
  const technical=[item("均線趨勢",8,tech===null?null:tech.close>tech.ma20&&tech.ma20>tech.ma60?8:tech.close>tech.ma20?5:2,tech?{close:tech.close,ma20:tech.ma20,ma60:tech.ma60}:null,tech?.date,"FinMind","未調整除權息／減資"),item("RSI(14)",4,tech===null?null:tech.rsi>=45&&tech.rsi<=65?4:tech.rsi>70||tech.rsi<30?1:2,tech?.rsi,tech?.date,"FinMind","極端 RSI 不直接等於買賣訊號"),item("MACD",4,tech===null?null:tech.macd>tech.signal?4:1,tech?{macd:tech.macd,signal:tech.signal,cross:tech.macdCross}:null,tech?.date,"FinMind","歷史資料未進行公司行動調整"),item("量價",4,tech?.volumeRatio===null||!tech?null:tech.volumeRatio>=1.2&&tech.close>tech.ma20?4:tech.volumeRatio<0.5?1:2,tech?.volumeRatio,tech?.date,"FinMind","以近二十交易日成交股數作比較")];
  const groups={fundamental,news,chips,technical};const parts=Object.fromEntries(Object.entries(groups).map(([key,items])=>[key,{max:WEIGHTS[key],earned:round(items.reduce((s,i)=>s+(i.score??0),0)),covered:items.reduce((s,i)=>s+(i.score===null?0:i.max),0),items}]));
  const covered=Object.values(parts).reduce((s,p)=>s+p.covered,0),earned=round(Object.values(parts).reduce((s,p)=>s+p.earned,0));
