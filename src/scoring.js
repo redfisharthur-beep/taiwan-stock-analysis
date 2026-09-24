@@ -91,7 +91,7 @@ export function scoreStock({
  const eps=recent(epsRows,date,180),prevEps=eps&&epsRows.find(r=>r.date===String(Number(eps.date.slice(0,4))-1)+eps.date.slice(4));
  const epsValue=eps?num(eps.value):null;
  const epsGrowth=epsValue!==null&&num(prevEps?.value)>0?(epsValue/num(prevEps.value)-1)*100:null;
- const epsScore=epsValue===null?null:epsValue<=0?0:epsGrowth===null?5:epsGrowth>=20?10:epsGrowth>=0?8:4;
+ const epsScore=epsValue===null?null:epsValue<=0?0:epsGrowth===null?null:epsGrowth>=20?10:epsGrowth>=0?8:4;
  const operating=recent(cashFlows.filter(r=>r.type==="CashFlowsFromOperatingActivities"&&finite(num(r.value))),date,180);
  const oldCash=operating&&cashFlows.find(r=>r.date===String(Number(operating.date.slice(0,4))-1)+operating.date.slice(4)&&
   r.type==="CashFlowsFromOperatingActivities");
