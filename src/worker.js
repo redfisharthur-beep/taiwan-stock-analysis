@@ -47,7 +47,9 @@ async function analyze(stock,env,override=null,shared=null){
  twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
  return reply({stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
-  score,candles,holding,newsResearch,valuationLatest:clean.valuation.filter(v=>v.date<=marketDate).sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
+  score,candles,holding,newsResearch,valuationLatest:clean.valuation.filter(v=>v.date<=marketDate&&
+    (Date.parse(marketDate+"T00:00:00Z")-Date.parse(v.date+"T00:00:00Z"))/86400000<=10)
+    .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
   sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links,
   goodinfo});
 }
