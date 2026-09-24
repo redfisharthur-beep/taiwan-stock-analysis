@@ -64,7 +64,7 @@ export async function getHoldingRows(fetcher=fetch){
  * Validate date, stock, four distinct tiers and three consecutive reporting weeks.
  */
 export async function archivedHoldingForStock(stock,marketDate,fetcher=fetch){
- if(!/^[0-9]{4}$/.test(stock)||!/^\\d{4}-\\d{2}-\\d{2}$/.test(marketDate||""))return null;
+ if(!/^[0-9]{4}$/.test(stock)||!/^\d{4}-\d{2}-\d{2}$/.test(marketDate||""))return null;
  const base="https://api.github.com/repos/wirelessr/tdcc-opendata-archive/contents/snapshots/";
  const archive="https://raw.githubusercontent.com/wirelessr/tdcc-opendata-archive/main/snapshots/";
  const year=marketDate.slice(0,4);
@@ -78,8 +78,8 @@ export async function archivedHoldingForStock(stock,marketDate,fetcher=fetch){
   index=await response.json();
  }catch{return null}finally{catalog.stop()}
  if(!Array.isArray(index))return null;
- const dates=index.map(x=>String(x.name||"").replace(/\\.csv$/,"")).filter(x=>
-  /^\\d{4}-\\d{2}-\\d{2}$/.test(x)&&x<=marketDate).sort().slice(-3);
+ const dates=index.map(x=>String(x.name||"").replace(/\.csv$/,"")).filter(x=>
+  /^\d{4}-\d{2}-\d{2}$/.test(x)&&x<=marketDate).sort().slice(-3);
  if(dates.length!==3)return null;
  const weekGaps=dates.slice(1).map((d,i)=>(Date.parse(d)-Date.parse(dates[i]))/86400000);
  if(weekGaps.some(days=>days<5||days>10))return null;
@@ -90,11 +90,11 @@ export async function archivedHoldingForStock(stock,marketDate,fetcher=fetch){
    if(!response.ok||Number(response.headers?.get?.("content-length")||0)>4000000)return [];
    const bytes=await response.arrayBuffer();
    if(bytes.byteLength>4000000)return [];
-   const csv=new TextDecoder("utf-8").decode(bytes).replace(/^\\uFEFF/,"");
-   const lines=csv.split(/\\r?\\n/);
+   const csv=new TextDecoder("utf-8").decode(bytes).replace(/^\uFEFF/,"");
+   const lines=csv.split(/\r?\n/);
    const matching=lines.slice(1).filter(line=>line.split(",",2)[1]?.trim()===stock);
    if(!matching.length)return [];
-   return parseCSV([lines[0],...matching].join("\\n"));
+   return parseCSV([lines[0],...matching].join("\n"));
   }catch{return []}finally{req.stop()}
  }));
  const rows=selected.flat();
