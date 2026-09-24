@@ -72,7 +72,7 @@ function groupCard(name,part,holdingStatus=null){
  const delta=part.items.find(i=>i.name==="消息事件調整")?.score??0;
  head.append(el("h3",name),el("span",isNews?
   "消息加減 "+(delta>0?"+":"")+delta+" 分":
-  part.earned+" / "+part.max+" 分 · 涵蓋 "+part.covered+"/"+part.max,"pill"));
+  numberText(part.earned)+" / "+part.max+" 分 · 計分資料 "+part.covered+"/"+part.max,"pill"));
  box.append(head);
  const details=el("div","","score-detail");
  for(const item of part.items){
@@ -86,7 +86,12 @@ function groupCard(name,part,holdingStatus=null){
    if(entry.note)metric.append(el("small",entry.note));
    row.append(metric);
   }
-  if(item.score===null)row.append(el("small","資料不足，暫不計分","metric-pending"));
+  if(item.score===null){
+   const reason=item.name==="400張以上持股三週趨勢"?"尚缺三期可核實的每週集保持股資料":
+    item.name==="量價"?"近20日成交量不足":
+    item.name==="EPS 與去年同季"?"同季 EPS 歷史資料不足":"來源資料不足";
+   row.append(el("small",reason,"metric-pending"));
+  }
   details.append(row);
  }
  box.append(details);
@@ -111,8 +116,8 @@ function renderFinancials(d){
   ["單月營收年增率",f.monthlyRevenueYoY??Number.parseFloat(revenue.value),"%",f.revenueDate||revenue.date,"與去年同月比較；單月波動不代表獲利"],
   ["毛利率",f.grossMargin,"%",f.incomeDate,"同一報表期毛利／營收"],
   ["營業利益率",f.operatingMargin,"%",f.incomeDate,"同一報表期營業利益／營收"],
-  ["淨利率",f.netMargin,"%",f.incomeDate,"同一報表期淨利／營收"],
-  ["季度 ROE（簡化）",f.quarterlyRoe,"%",f.incomeDate,"單季淨利／同季末權益；非年化"],
+  ["淨利率",f.netMargin,"%",f.incomeDate,f.missingReasons?.netMargin||"同一期淨利／營收"],
+  ["報表期 ROE（簡化）",f.quarterlyRoe,"%",f.incomeDate,f.missingReasons?.quarterlyRoe||"同一期淨利／權益；非年化"],
   ["流動比率",f.currentRatio," 倍",f.balanceDate,"流動資產／流動負債；金融業口徑不同"],
   ["負債比",quality.value?.debtRatioPct??f.debtRatio,"%",quality.date||f.balanceDate,"負債／總資產；需參照產業特性"],
   ["營業現金流",cash.value??f.operatingCashFlow,"",cash.date||f.cashDate,"公開財報原始單位；可能為年初至當季累計"],
@@ -124,6 +129,7 @@ function renderFinancials(d){
   const display=label==="營業現金流"&&typeof value==="number"?
    (value>0?"正值":value<0?"負值":"零")+"（金額詳見來源）":nval(value,unit);
   box.append(el("span",label),el("strong",display));
+  if(display==="待查"&&note)box.append(el("small",note));
   // Reporting dates and source methodology remain in the data-health panel and API, not repeated here.
   target.append(box);
  }
@@ -165,8 +171,8 @@ function present(d){
   ["技術面",d.score.parts.technical.earned+" / 30"],
   ["籌碼面",d.score.parts.chips.earned+" / 30"],
   ["消息加減",(d.score.newsDelta>0?"+":"")+(d.score.newsDelta??0)+" 分"],
-  ["綜合分數",d.score.score===null?"待資料齊全":d.score.score+" / 100"],
-  ["資料涵蓋",d.score.coveragePercent+"%"]
+  ["綜合分數",d.score.score===null?"待核實；已計 "+numberText(d.score.observedPoints)+" 分":numberText(d.score.score)+" / 100"],
+  ["計分資料涵蓋",d.score.coveragePercent+"%"]
  ];
  for(const [name,value] of displayedStats){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
