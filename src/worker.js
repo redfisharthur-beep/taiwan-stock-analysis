@@ -1,8 +1,11 @@
-import {finmind,officialQuote,scanOfficialUniverse,rankUniverseCandidates,normalize,reconcile} from "./providers.js";
+import {finmind,officialQuote,scanOfficialUniverse,rankUniverseCandidates,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
 import {getHoldingRows,concentration} from "./holding.js";
 import {researchNews} from "./news.js";
 import {assessUndervaluation} from "./value.js";
+import {summarizeFinancialStatements} from "./fundamentals.js";
+import {buildPeerComparison} from "./industry.js";
+import {hasMarketDB,saveUniverse,getMarketSummary,searchSavedStocks,getSavedCompany,getSavedProfile,getDailySaved,claimNextCompany,saveResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
@@ -39,11 +42,11 @@ async function analyze(stock,env,override=null,shared=null){
  const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
  const verification=reconcile(official,clean.prices);
- let holding=null,newsResearch=null;
+ let holding=shared?.cachedHolding||null,newsResearch=null;
  const marketDate=clean.prices.at(-1)?.date;
- try{const tdccRows=shared?.tdccRows??await getHoldingRows();
+ if(!holding){try{const tdccRows=shared?.tdccRows??await getHoldingRows();
    holding=concentration(tdccRows,stock,marketDate);
- }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}
+ }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}}
  try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
    shared?.bulk?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
    shared?.newsByMarket?.[official?.market||override?.market],official?.name||override?.name||"");}
@@ -65,6 +68,7 @@ async function analyze(stock,env,override=null,shared=null){
      brokerTechnicalPrices=broker.bars;
  }
  const score=scoreStock({...clean,official,holding,newsResearch,brokerTechnicalPrices});
+ const financialInsights=summarizeFinancialStatements(clean);
  if(brokerVerification.state==="matched"&&brokerBars.length>=61&&score.technicalMode==="raw"){
    const brokerIndicators=indicators(brokerBars);
    brokerVerification.indicatorReview=compareRawTechnicalIndicators(score.indicators,brokerIndicators);
@@ -77,9 +81,9 @@ async function analyze(stock,env,override=null,shared=null){
  const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&
  p.high>=Math.max(p.open,p.close,p.low)&&p.low<=Math.min(p.open,p.close,p.high)).slice(-120);
  const links={twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
- return reply({stock,name:official?.name||"",market:official?.market||"尚未辨認",
+ const responseBody={stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
-  score,candles,holding,newsResearch,datasetHealth,
+  score,candles,holding,newsResearch,datasetHealth,financialInsights,
   brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason,
    indicatorReview:brokerVerification.indicatorReview||null,
    useInPublicScoring:env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&brokerVerification.state==="matched"},
@@ -88,7 +92,51 @@ async function analyze(stock,env,override=null,shared=null){
   valuationLatest:clean.valuation.filter(v=>v.date<=marketDate&&
     (Date.parse(marketDate+"T00:00:00Z")-Date.parse(v.date+"T00:00:00Z"))/86400000<=10)
     .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
-  sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links});
+  sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links};
+ if(typeof shared?.persist==="function")await shared.persist(clean,responseBody);
+ return reply(responseBody);
+}
+// D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
+// trigger public GET writes or pretend to contain a full-market financial history.
+async function performScheduled(controller,env){
+ if(!hasMarketDB(env))return;
+ const db=env.MARKET_DB,cron=controller.cron||"";
+ if(cron==="0 11 * * 1-5"){
+  const universe=await scanOfficialUniverse({priceCeiling:500});
+  if(universe.marketCount!==2||universe.markets.some(x=>!x.registryAvailable||x.date!==universe.marketDate))
+   throw Error("兩市場名冊或日期不完整，保留先前已核實的資料庫行情");
+  await saveUniverse(db,universe);
+  return;
+ }
+ if(cron==="30 11 * * 5"){
+  const summary=await getMarketSummary(db);
+  if(summary.marketDate)await syncHoldingSnapshots(db,summary.marketDate);
+  return;
+ }
+ const summary=await getMarketSummary(db);
+ if(summary.total===0){
+  const universe=await scanOfficialUniverse({priceCeiling:500});
+  if(universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable&&x.date===universe.marketDate))
+   await saveUniverse(db,universe);
+  return;
+ }
+ if(!env.FINMIND_TOKEN)return;
+ const row=await claimNextCompany(db);
+ if(!row)return;
+ const held=await savedHolding(db,row.stock);
+ const override={market:row.market,source:row.market==="上市"?"TWSE":"TPEx",name:row.name,
+  close:row.close,date:row.date,url:row.market==="上市"?
+   "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
+   "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"};
+ try{
+  const response=await analyze(row.stock,env,override,{bulk:false,tdccRows:[],
+   // A stored weekly snapshot is shared across stocks; never re-download TDCC per company.
+   cachedHolding:held,newsByMarket:{
+    "上市":{rows:[],error:"排程未批次核對新聞"},
+    "上櫃":{rows:[],error:"排程未批次核對新聞"}},
+   persist:(clean,body)=>saveResearch(db,row,clean,body)});
+  if(!response.ok)throw Error("深入分析 HTTP "+response.status);
+ }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error));}
 }
 // 每日單一名單：官方全市場估值先選五檔，再核對可取得的財報與歷史行情。
 // 免費 Worker 單次子請求目標：六份市場批次資料＋五檔各八份 FinMind，約 46 次。
@@ -156,13 +204,28 @@ async function computeTopFive(env){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"whole_market_daily_prescreen_five_deep_research",sinopacConfigured:sinopacReady(env),
+  rankingMode:"whole_market_daily_prescreen_scheduled_research",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.14.0",time:new Date().toISOString()});
+  version:"0.15.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+ if(url.pathname==="/api/search"){
+  const q=(url.searchParams.get("q")||"").trim();
+  if(!q||q.length>30)return reply({results:[]},200,90);
+  try{
+   let results=[];
+   if(hasMarketDB(env))results=await searchSavedStocks(env.MARKET_DB,q);
+   if(!results.length)results=await searchOfficialCompanies(q);
+   return reply({results},200,300);
+  }catch(error){return reply({results:[],error:"股票名冊暫不可用"},503)}
+ }
+ if(url.pathname==="/api/market-status"){
+  if(!hasMarketDB(env))return reply({configured:false,reason:"尚未綁定並遷移 D1 市場資料庫"},200,60);
+  try{return reply(await getMarketSummary(env.MARKET_DB),200,60)}
+  catch{return reply({configured:true,error:"資料表尚未初始化"},503)}
+ }
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.14.0");
+  const key=new Request(url.origin+"/api/top5?model=0.15.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env);
@@ -175,15 +238,43 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.14.0"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.15.0"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=await analyze(stock,env);
-   if(res.ok)ctx.waitUntil(cache.put(key,res.clone()));
+   if(res.ok){
+    const payload=await res.clone().json();
+    if(hasMarketDB(env)){
+     try{
+      const company=await getSavedCompany(env.MARKET_DB,stock);
+      if(company){
+       const stored=await getSavedProfile(env.MARKET_DB,stock);
+       if(stored?.metrics){
+        const own={stock,industry:company.industry,market:company.market,
+         marketDate:payload.finmind.date,metrics:{...stored.metrics,
+          technical:payload.score?.indicators||stored.metrics.technical,
+          technicalDate:payload.score?.indicators?.date||null}};
+        const peers=await getIndustryPeers(env.MARKET_DB,company,payload.finmind.date);
+        payload.industryComparison=buildPeerComparison(own,peers);
+       }else payload.industryComparison={industry:company.industry,items:[],
+        reason:"同產業財報尚未入庫，暫不計算 PR"};
+       const f=stored.metrics||{};
+       payload.researchArchive={finance:stored.financialPeriod,technical:stored.technicalDate,
+        chips:stored.chipsDate,updatedAt:stored.fetchedAt};
+      }
+     }catch(error){payload.industryComparison={industry:null,items:[],
+      reason:"同產業資料庫暫不可用，PR 待查"}}
+    }
+    const result=reply(payload,200,900);
+    ctx.waitUntil(cache.put(key,result.clone()));
+    return result;
+   }
    return res;
   }catch(err){return reply({error:"資料來源連線異常；未產生評分。",
    detail:String(err.message||err)},503)}
  }
  if(url.pathname.startsWith("/api/"))return reply({error:"找不到 API"},404);
  return env.ASSETS.fetch(request);
-}};
+},
+ async scheduled(controller,env,ctx){ctx.waitUntil(performScheduled(controller,env))}
+};
