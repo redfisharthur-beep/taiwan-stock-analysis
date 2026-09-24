@@ -60,7 +60,14 @@ button.outline{background:#e9f0e9;color:#486c58}
 .score-detail{font-size:16px;color:#73847a;margin-top:12px}
 .score-row{border-top:1px solid #edf0eb;padding:10px 0;font-size:16px}
 .score-row:first-of-type{margin-top:8px}
-.score-row small{display:block;font-size:16px;color:#829188;line-height:1.5;margin-top:3px}
+.score-row small{display:block;font-size:16px;color:#63786d;line-height:1.4;margin-top:2px}
+.score-row .row-head{align-items:baseline;flex-wrap:wrap}
+.score-row .row-head span{font-size:19px;color:#354d42}
+.score-row .row-head strong{font-size:16px;color:#5f7d6e}
+.score-metric{margin:9px 0 11px;padding-left:12px;border-left:3px solid #c6d8c8}
+.score-metric strong{display:block;font-size:21px;line-height:1.45;color:#304e3e;overflow-wrap:anywhere}
+.score-metric small{font-size:16px;color:#526b5b}
+.metric-pending{color:#805f4b!important}
 .row,.source-line{border-top:1px solid #e8eee7;padding:12px 0;font-size:16px}
 .source-line a{color:#547e68}
 .sources{padding:17px 22px}.sources[open] summary{margin-bottom:12px}
