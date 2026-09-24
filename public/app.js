@@ -63,11 +63,13 @@ async function refreshDaily(){
   if(!res.ok)throw Error("資料服務回傳 "+res.status);
   const d=await res.json();list.replaceChildren();
   stamp.textContent=d.marketDate?"行情 "+d.marketDate:"尚無有效行情日";
-  if(!d.ready){status.textContent=d.reason||"排行榜資料庫尚未設定。";return;}
+  if(!d.ready){status.textContent=d.reason||"尚未取得可驗證的最新候選股資料。";return;}
   if(!d.stocks?.length){status.textContent=d.reason||"無足夠且同交易日、相同覆蓋率的股票可供比較。";return;}
-  status.textContent=(d.published?"全市場經驗證完整評分；":"已查詢股票的同日可比較樣本；非全市場前五、非完整100分。")+
-   "比較樣本 "+d.verifiedComparableCount+" 檔；已收錄查詢資料 "+d.analyzedCount+" 檔；"+
-   (d.published?"四大面向皆已覆蓋。":"共同已涵蓋權重 "+d.coveragePoints+"/100。");
+  status.textContent="官方行情依成交金額選出 "+(d.candidateCount||0)+" 檔候選，再以同日 FinMind 資料核對；"+
+    "完成分析 "+d.analyzedCount+" 檔，同一評分口徑可比較 "+d.verifiedComparableCount+" 檔，"+
+    "共同涵蓋 "+d.coveragePoints+"/100。非全市場完整四面向前五。"+
+    (d.asOf?" 分析時間 "+new Date(d.asOf).toLocaleString("zh-TW",{timeZone:"Asia/Taipei"})+"。":"")+
+    (d.sourceWarnings?.length?" 來源提示："+d.sourceWarnings.slice(0,2).join("；"):"");
   for(const s of d.stocks){
     const card=node("article",null,"daily-item"),rank=node("div","#"+s.rank,"daily-rank"),
       body=node("div"),title=node("div",(s.name||"股票")+" "+s.stock,"daily-name"),
