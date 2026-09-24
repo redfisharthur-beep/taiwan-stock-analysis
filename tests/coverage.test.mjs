@@ -23,19 +23,19 @@ const extra={
 };
 test("all new financial metrics use actual dates and valid cash/debt and historical PER",()=>{
  const s=scoreStock({prices,...extra});const f=s.parts.fundamental.items,chips=s.parts.chips.items;
- assert.equal(f.find(x=>x.name==="估值／本益比").score,10);
- assert.equal(f.find(x=>x.name==="營業現金流（初步）").score,10);
- assert.equal(f.find(x=>x.name==="獲利品質與負債").score,9);
- assert.equal(f.find(x=>x.name==="EPS 與去年同季").score,10);
+ assert.equal(f.find(x=>x.name==="估值／本益比").score,8);
+ assert.equal(f.find(x=>x.name==="營業現金流（初步）").score,8);
+ assert.equal(f.find(x=>x.name==="獲利品質與負債").score,7.2);
+ assert.equal(f.find(x=>x.name==="EPS 與去年同季").score,8);
  assert.equal(chips.find(x=>x.name==="法人近五日淨買賣／成交量").value.ratioPct,5);
- assert.equal(chips.find(x=>x.name==="法人近五日淨買賣／成交量").score,10);
- assert.equal(s.parts.technical.covered,20);assert.equal(s.coveredPoints,85);
+ assert.equal(chips.find(x=>x.name==="法人近五日淨買賣／成交量").score,15);
+ assert.equal(s.parts.technical.covered,30);assert.equal(s.coveredPoints,92);
  assert.equal(s.score,null);assert.equal(s.parts.news.covered,0);
 });
 test("raw technical indicators stay source-labeled when adjusted series is missing; balance and PER remain missing",()=>{
  const s=scoreStock({prices,valuation:[{date:marketDate,per:18}],cashFlows:extra.cashFlows,
   margin:[{date:"2026-09-30",financing:1,previousFinancing:2,short:0,previousShort:0}]});
- assert.equal(s.parts.technical.covered,20);
+ assert.equal(s.parts.technical.covered,30);
  assert.equal(s.technicalMode,"raw");
  assert.equal(s.parts.fundamental.items.find(x=>x.name==="估值／本益比").score,null);
  assert.equal(s.parts.fundamental.items.find(x=>x.name==="獲利品質與負債").score,null);
