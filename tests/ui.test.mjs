@@ -21,6 +21,10 @@ test("single original stylesheet defines Morandi palettes and rounded light font
   assert.ok(css.includes(selector),selector);
  }
  assert.equal((css.match(/:root\{/g)||[]).length,1);
+ assert.match(css,/body\{[^}]*font-size:19px;[^}]*font-weight:700/);
+ assert.match(css,/#ticker\{[^}]*font-size:21px;[^}]*font-weight:700/);
+ assert.doesNotMatch(css,/font-weight:(?:300|400|500|600)/);
+ assert.match(html,/Zen\+Maru\+Gothic:wght@700/);
 });
 test("Cloudflare cron weekday names cannot unintentionally include Sunday",()=>{
  assert.deepEqual(wrangler.triggers.crons,
