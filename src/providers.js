@@ -173,8 +173,8 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
   universeCount:all.length,sameDateCount:sameDate.length,
   pricedCount:priced.length,affordableCount:affordable.length,
   tradableCount:tradable.length,excludedOverCeiling:priced.filter(r=>r.close>=priceCeiling).length,
-  missingPriceCount:sameDate.length-priced.length,
-  staleMarketCount:all.length-sameDate.length,
+  missingPriceCount:all.filter(r=>!Number.isFinite(r.close)||r.close<=0).length,
+  staleMarketCount:all.filter(r=>r.date&&r.date!==marketDate).length,
   stocks:tradable};
 }
 
