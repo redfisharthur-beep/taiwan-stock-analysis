@@ -164,7 +164,7 @@ function renderStockCard(stock){
  if(stock.financials){
   const f=stock.financials;
   const summary=el("p","財報："+(f.reportPeriod||"報告期未明")+
-   "｜EPS "+showMetric(f.eps," 元")+"｜營業現金流 "+showMetric(f.operatingCashFlow)+
+   "｜EPS "+showMetric(f.eps," 元")+"｜營業現金流 "+(f.operatingCashFlow===null?"待查":f.operatingCashFlow>0?"為正":f.operatingCashFlow===0?"持平":"為負")+
    "｜負債比 "+showMetric(f.debtRatioPct,"%"),"daily-reason");
   body.append(summary);
  }else body.append(el("p","財報尚待核對，不能只憑低本益比判斷價值。","daily-reason"));
