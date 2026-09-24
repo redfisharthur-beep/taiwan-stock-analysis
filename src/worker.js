@@ -2,11 +2,10 @@ import {mergeVerifiedResearch} from "./top-five.js";
 import {tickerPattern,isETFCandidate} from "./instruments.js";
 import {finmind,officialQuote,scanOfficialUniverse,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
-import {getHoldingRows,concentration,archivedHoldingForStock} from "./holding.js";
 import {researchNews} from "./news.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
-import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
+import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
@@ -85,34 +84,8 @@ async function analyze(stock,env,override=null,shared=null){
  const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
  const verification=reconcile(official,clean.prices);
- let holding=shared?.cachedHolding||null,newsResearch=null;
  const marketDate=clean.prices.at(-1)?.date;
- let holdingStatus={code:"not_checked",reason:"尚未開始核對持股週期"};
- if(holding?.trend)holdingStatus={code:"verified",reason:"已取得三期集保持股紀錄"};
- if(!holding){try{const tdccRows=shared?.tdccRows??await getHoldingRows();
-   holding=concentration(tdccRows,stock,marketDate);
-   holdingStatus=holding?.trend?{code:"verified",reason:"TDCC 來源包含三期有效週資料"}:
-    holding?{code:"latest_only",reason:"TDCC 最新資料已取得，但可核對的連續三週持股紀錄不足"}:
-    {code:"no_current_record",reason:"TDCC 當期資料沒有此股票可核對的持股級距"};
- }catch(error){
-   holdingStatus={code:"tdcc_unavailable",reason:"TDCC 當期資料讀取失敗："+String(error.message||error)};
-   warnings.push(holdingStatus.reason);
- }}
- if(!holding?.trend&&!shared?.bulk&&!shared?.skipArchive){
-  try{
-   const archive=await archivedHoldingForStock(stock,marketDate,fetch,{
-    onStatus:status=>{holdingStatus=status}
-   });
-   if(archive?.trend)holding=archive;
-  }catch(error){
-   holdingStatus={code:"archive_error",reason:"公開三週備份查詢失敗："+String(error.message||error)};
-   warnings.push(holdingStatus.reason);
-  }
- }
- if(!holding?.trend){
-  holding={...(holding||{}),trend:null,
-   note:"持股趨勢待查："+holdingStatus.reason};
- }
+ let newsResearch=null;
  try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
    shared?.bulk||shared?.skipNews?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
    shared?.newsByMarket?.[official?.market||override?.market],official?.name||override?.name||"");}
@@ -133,7 +106,7 @@ async function analyze(stock,env,override=null,shared=null){
        brokerVerification.state==="matched"&&broker.bars?.length>=61)
      brokerTechnicalPrices=broker.bars;
  }
- const score=scoreStock({...clean,official,holding,newsResearch,brokerTechnicalPrices});
+ const score=scoreStock({...clean,official,newsResearch,brokerTechnicalPrices});
  const financialInsights=summarizeFinancialStatements(clean);
  if(brokerVerification.state==="matched"&&brokerBars.length>=61&&score.technicalMode==="raw"){
    const brokerIndicators=indicators(brokerBars);
@@ -149,7 +122,7 @@ async function analyze(stock,env,override=null,shared=null){
  const links={twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
  const responseBody={stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
-  score,candles,holding,holdingStatus,newsResearch,datasetHealth,financialInsights,
+  score,candles,newsResearch,datasetHealth,financialInsights,
   brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason,
    indicatorReview:brokerVerification.indicatorReview||null,
    useInPublicScoring:env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&brokerVerification.state==="matched"},
@@ -175,11 +148,6 @@ async function performScheduled(controller,env){
   if(universe.marketCount!==2||universe.markets.some(x=>!x.registryAvailable))
    throw Error("兩市場名冊或日期不完整，保留先前已核實的資料庫行情");
   await saveUniverse(db,universe);
-  return;
- }
- if(cron==="30 11 * * FRI"){
-  const summary=await getMarketSummary(db);
-  if(summary.marketDate)await syncHoldingSnapshots(db,summary.marketDate);
   return;
  }
  const summary=await getMarketSummary(db);
@@ -213,7 +181,6 @@ async function performScheduled(controller,env){
   }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error))}
   return;
  }
- const held=await savedHolding(db,row.stock,row.date);
  try{
   const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,skipArchive:false,tdccRows:[],
    // A stored weekly snapshot is shared across stocks; never re-download TDCC per company.
@@ -254,7 +221,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"verified_100_coverage_full_market_scores",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.19.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.20.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -300,7 +267,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.19.0");
+  const key=new Request(url.origin+"/api/observations?model=0.20.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
@@ -338,7 +305,8 @@ export default {async fetch(request,env,ctx){
        // Never reuse an older session, unverified profile or unearned coverage.
        if(payload.score?.score===null&&stored?.marketDate===payload.finmind.date&&
           company.date===payload.finmind.date&&payload.verification?.state==="一致"&&
-          stored.metrics?.verified===true&&stored.score?.coveragePercent===100&&
+          stored.metrics?.verified===true&&stored.score?.scoreModelVersion==="chips_flow20_margin10_v1"&&
+           stored.score?.coveragePercent===100&&
           Number.isFinite(stored.score?.baseScore)&&
           ["fundamental","technical","chips"].every(k=>
            stored.score.parts?.[k]?.covered===stored.score.parts?.[k]?.max)){
