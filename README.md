@@ -1,66 +1,29 @@
-# 台股研究室 · Cloudflare Workers v0.3
+# 台股研究室 · Cloudflare Workers v0.4（不使用 D1）
 
-跨手機、平板及電腦的響應式台股研究介面，使用 Cloudflare Workers 託管網站與資料 API。**此版本為可部署的單檔查詢與資料核對 MVP，不是完成的全市場評分或即時交易系統。**
+手機、平板及電腦可用的台股研究網站；**不保存歷史榜單、不使用 Cloudflare D1**。首頁自動取得最新可用的官方上市／上櫃行情，按流動性各選五檔候選，使用 FinMind 個股資料核對後產生研究清單。Cloudflare Cache API 對成功清單做 30 分鐘暫存，**這不是歷史資料庫**，快取到期後下次造訪重算。
 
-## 現有功能
+## 功能與重要限制
 
-- FinMind：歷史日行情、月營收、EPS 所在財報、法人交易的個股查詢。使用者帳戶需要具備各資料集存取權限。
-- TWSE / TPEx：取得最近的官方收盤資料；只有當官方與 FinMind 記錄屬於相同交易日才比價；日期不明與資料衝突會明確標記。
-- 四面向固定權重：基本面 50、消息面 10、籌碼面 20、技術分析 20。尚未介接的財務品質、股權、融資券及消息細項標記「資料不足」，不把缺失重分配權重，也不假造完整的 100 分。已評子項只作研究參考。
-- Goodinfo：個股連結與**使用者手動輸入同日收盤價核對**。未獲 Goodinfo 自動擷取授權，沒有爬蟲或假裝已自動查證。手動數值不傳送到後端，不參與評分。
-- 研究來源、資料日期、驗證狀態、資料覆蓋率與官方來源連結；使用者可直接分享 `?stock=2330` 個股網址。
-- 已附基本單元測試與 GitHub Actions。資料與指標皆可能延遲或有誤；技術指標未納入除權息與減資價格調整。
+- `/api/top5`：讀取 TWSE 和 TPEx 官方最新行情，按當日成交金額預篩**各 5 檔、最多 10 檔**候選；以四個 FinMind 資料集逐檔分析；只比較相同實際交易日、官方收盤價與 FinMind 一致、且具**相同已涵蓋子指標**的候選，至多展示五檔。不足五檔時如實展示少於五檔或顯示原因。官方兩市場資料日期不同時只分析最新相同日期的候選。
+- **這不是全市場排名，也不是四大面向完整 100 分的前五名**：成交額預篩可能排除其他優質公司；現階段的消息、財務品質、TDCC 等尚未完成，僅顯示已評子項小計與覆蓋權重。尚不能對外宣稱今日「全上市櫃綜合評分最高 5 檔」或保證個股報酬。
+- 每檔列出各面向覆蓋分數、獲分的數值理由、來源日期；點進去可看個股基本面、籌碼、技術子項與 FinMind 近 70 個交易日日 K（含開高低收及成交股數）。
+- Goodinfo：個股頁面連結與**人工輸入同日收盤價**核對。未取得自動擷取授權，沒有爬蟲、沒有聲稱已與 Goodinfo 自動交叉驗證。消息面沒有經驗證來源時保留「資料不足」，不得偽造正面消息分數。
+- 交易日以官方回傳日期為準，不能使用電腦今天的日期冒充今日股價；休市與官方尚未更新時可能顯示前一交易日。完整研究報告與 K 線的公司行動（除權息、減資）調整、產業相對估值、財報更正與公告仍待補強。
+- 每次排行榜冷快取需要最多 2 次官方市場請求 + 40 次 FinMind 個股資料請求；配額與計費視 FinMind 方案及 Cloudflare Workers 計畫而定。高流量、不同 Cloudflare 邊緣節點、快取未命中都可能觸發重算；不保證免費額度足夠。上線前應確認對親友分享時的資料再展示授權。
+- 未連結 FinMind Secret 或來源不足時回傳缺資料說明，不以假股票、模擬日期或不完整資料硬補足五檔。
 
-## 連線 FinMind（請勿在聊天或 GitHub 分享金鑰）
+## 雲端部署（全程不必安裝本機程式）
 
-1. 在 [Cloudflare Dashboard](https://dash.cloudflare.com/) 的 Workers & Pages 建立 Worker，點選 **Import a repository**，選擇 `redfisharthur-beep/taiwan-stock-analysis` 的 `main` 分支。
-2. 專案類型使用 **Workers**，根目錄留空；Build command 留空，Deploy command 輸入 `npx wrangler deploy`。本專案 `wrangler.jsonc` 已指定靜態資產 `public/` 與後端 `src/worker.js`，不需要 Python 主機，也不使用 Pages 專用建置。
-3. 首次部署後進入該 Worker → Settings → Variables and Secrets → Add → 類型 **Secret**；名稱必須為 `FINMIND_TOKEN`，值貼入你的 FinMind API 金鑰。儲存並確保使用含 Secret 的新部署版本。
-4. 開啟 `https://<你的 workers.dev 網址>/api/health`，確認 `finmindConfigured: true`。這只表示有設定金鑰，還要再開首頁測試 2330（上市）及一檔上櫃股票，確定 FinMind 權限、資料日期與 API 回傳格式皆有效。
-5. 在 Cloudflare 設定 Worker 的 Git repository 與 main 生產分支，未來 GitHub 更新才能自動部署。經過資料授權與資料品質檢驗後，才將正式版網址分享給親友。
+1. Cloudflare Dashboard → Workers & Pages → Create → Import a repository，選 GitHub 倉庫 `redfisharthur-beep/taiwan-stock-analysis`，正式分支 `main`，類型 **Workers**。
+2. 根目錄不變；Build command 可留空；Deploy command 設 `npx wrangler deploy`。專案 `wrangler.jsonc` 已指定 `src/worker.js` 與 `public/`。
+3. Worker → Settings → Variables and Secrets → Add，類型 **Secret**、名稱 **`FINMIND_TOKEN`**，值貼上你的 FinMind API 金鑰。不要將金鑰貼到 GitHub、公開網頁或聊天訊息。儲存並部署新版本。
+4. 開啟 `https://<你的-workers-dev-網址>/api/health` 確認 `finmindConfigured:true` 及 `rankingMode:"on_demand_no_database"`。此步僅驗證已配置金鑰；需要再開首頁測試 2330、上櫃個股與 `/api/top5`，確認 API 權限、實際交易日期、同日官方價核對成功。
+5. Cloudflare 連結 GitHub main 後可由 push 自動部署；無需建立 D1、無需執行 schema.sql、無需 DB binding 或排程。
 
-## 問題排查
+## 未實作但與「全上市櫃前五」有關
 
-- `/api/health` 回傳 `false`：Worker 尚未配置金鑰、名稱錯誤或新版尚未部署。
-- 查詢回傳 503：FinMind 配額、金鑰、上游服務或連線可能異常；程式不以測試數據補值。
-- 官方核對顯示日期不一致／未知：官方行情與 FinMind 必須是同一交易日，先檢查端點資料格式與時區。
-- 若股票為停牌、剛掛牌、金融業、除權息或特殊公司行動，現行通用指標可能不適合，請回原始公告核對。
-- Repo 為公開倉庫，`.dev.vars`、`.env` 已加入 `.gitignore`，API key 只能設定為 Cloudflare Secret。
+真正全市場每天完整四面向排名，需要覆蓋全部上市櫃普通股、清楚界定股票母體、官方／FinMind／合法授權的 Goodinfo 數據交叉驗證、補齊基本面與消息面、處理停牌及金融業特殊指標，再完成時間點一致性與歷史回測。**不用歷史榜單資料庫可以辦到，但需要足夠 API 配額、分批雲端運算與可在當日暫時提供結果的快取。** 目前只有十檔官方成交金額預篩樣本，因此不能代表全市場。
 
-## 尚未實作（正式發布前應規劃）
+## 檢查程式碼
 
-全市場批次股票掃描（目前只有已查詢樣本的 D1 快照）、進階 ROE／現金流、金融業專用模型、TDCC 股權、融資融券、重大公告及新聞的多來源查證、修正後還原價、公司行動、歷史回測、使用者登入與個人自選股、**授權後的 Goodinfo 自動比對**。全市場查詢和公開再散布前，確認 FinMind、TWSE、TPEx 與 Goodinfo 的資料使用授權、API 速率及再展示規定。
-
-## 測試
-
-GitHub Actions 於 push main 後執行 `npm test`；若需要本地測試，`npm install && npm test`。本地開發可建立未追蹤的 `.dev.vars` 並執行 `npm run dev`；正式網站不需要在你的電腦運作。
-
-## v0.3：每日觀察五檔與 K 線（新增）
-
-- 首頁底部新增「今日精選五檔 · 資料驗證榜」。載入 `/api/top5`，只使用同交易日 **官方與 FinMind 收盤價一致**且沒有來源錯誤的真實股票快照；排除跨日、不一致、無資料股票。
-- 若尚未完成全市場掃描及四面向 100 分資料，**只能顯示「已查詢樣本觀察」**，以共同完成的相同子指標覆蓋範圍排序，顯示「已評子項小計／覆蓋權重」而非完整綜合分數。它**不是全上市櫃前五，也不是五檔買入推薦**；沒有足夠且相同口徑的五檔時會少於五檔或保持空白。
-- 每檔卡片顯示基本面／消息面／籌碼面／技術面的小計、關鍵數值、高分具體理由、指標來源與日期；按「查看完整明細」載入該股票詳細頁。
-- 詳情新增近 70 個交易日的互動日 K（OHLC）及成交量；滑鼠或觸控查看開高低收與量，使用實際 FinMind 回傳資料，**沒有繪製虛構 K 棒**。技術分析暫未校正除權息／減資。
-- `/api/top5` 需要 Cloudflare D1 綁定 `DB`；`schema.sql` 建立 `stock_snapshots`。每次查詢個股且**相同交易日官方價一致**才保存快照；每小時第 10 分透過 Cron 更新最多 5 檔已保存股票。**目前沒有每天全市場自動掃描**，因此不能稱為全市場當日榜單。
-- 正式完整 100 分榜單還要：完整財務品質、合理同業估值、TDCC 週資料與融資融券、可追溯企業重大公告與新聞查證、所有上市櫃證券的批次更新、歷史回測及發布前資料授權。
-
-### 啟用每日觀察榜：Cloudflare D1（不必在本機執行）
-
-1. 登入 Cloudflare → Storage & databases → D1 SQL database → Create database，名稱可用 `taiwan-stock-analysis-db`。建立成功後，從資料庫詳情**複製 Database ID（UUID）**。ID 不是 API 金鑰；請勿分享 Cloudflare API Token 或 FinMind Token。
-2. 點進資料庫的 Console（SQL 主控台），將 GitHub 倉庫根目錄 `schema.sql` 的 SQL 指令貼上執行，建立 `stock_snapshots` 表格（`CREATE TABLE IF NOT EXISTS`，不會刪除既有資料）。
-3. 在 Worker → Settings → Bindings → Add → D1 Database，Variable name 設定為 **`DB`**，選剛建立的資料庫。
-4. **非常重要：GitHub 與 Wrangler 後續部署需在倉庫 `wrangler.jsonc` 保留以下設定**（將 `<實際 UUID>` 換成剛複製的 Database ID；可把 ID 提供給協助開發的人員直接更新 GitHub）：
-   
-   ```json
-   "d1_databases": [
-     {"binding": "DB", "database_name": "taiwan-stock-analysis-db", "database_id": "<實際 UUID>"}
-   ]
-   ```
-   
-   將這個欄位加入 `wrangler.jsonc` 的最外層 JSON 物件，與 `assets`、`observability` 平行，不要用上述節錄內容取代整個檔案。資料庫 ID 尚未建立前，**不要**在設定檔填假 UUID，否則部署可能失敗。
-5. Worker 重新部署後，確認 `/api/health` 顯示 `rankingDatabaseConfigured: true`。先用首頁查詢至少五檔股票，檢查回應中的官方核對狀態、日期及缺漏資料，然後回到首頁底部查看榜單。不同股票若完成的子指標不同，不會互相比較。
-6. Cloudflare Worker 的 Cron Triggers 使用 UTC 排程，每小時第 10 分重新整理最多五筆已收錄的分析快照；`FinMind` 金鑰與 D1 的每日免費用量上限都需要注意。**此排程不等於全市場每日完成掃描**。
-
-### 若看不到五檔
-- `DB` 尚未連接、資料表未建立、已查詢股票不足五檔、官方資料比對不一致、行情日期不同、FinMind 額度不足、覆蓋的評分項目不相同，都可能導致無法顯示五筆。畫面會說明當前可用的查詢樣本。
-- Goodinfo 仍為手動同日資料核對，尚無核准的機器擷取接口；不能假裝已完成該來源的自動驗證。
+推送至 main 會由 GitHub Actions 執行 `node --check` 與 `npm test`。部署後仍應實際驗證官方 API 的欄位及 FinMind 的額度、權限，GitHub 離線測試不代表線上資料已核對成功。
