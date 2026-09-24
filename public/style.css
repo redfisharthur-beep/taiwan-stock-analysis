@@ -19,3 +19,27 @@
 .daily-score small{display:block;font-size:12px;color:#82918a;font-weight:400;margin-top:5px}
 .daily-action{margin-top:9px;width:100%;padding:9px 10px;font-size:12px}
 @media(max-width:700px){.daily-item{grid-template-columns:32px minmax(0,1fr);gap:9px;padding:12px}.daily-rank{font-size:13px;padding:8px 0}.daily-score{grid-column:2;text-align:left;display:flex;align-items:center;gap:10px;font-size:17px}.daily-score small{margin:0}.daily-action{width:auto;margin:0}#kline{height:350px}}
+
+/* v0.5: clean, readable cards and supplied home-title artwork */
+body{font-size:15px;line-height:1.55}
+.hero{margin:30px 0;gap:26px}.hero-copy{flex:1;min-width:0}
+.hero h1{font-size:clamp(29px,3.6vw,42px);letter-spacing:.01em;margin:8px 0}
+.hero p{font-size:14px;line-height:1.5}.hero-image{display:block;max-width:100%;max-height:195px;width:auto;height:auto;object-fit:contain;object-position:left center}
+.hero-image[hidden],#hero-title[hidden],#result[hidden]{display:none}
+.search .panel{margin:0}.search form{margin:8px 0}.search #status{margin:6px 0 0}
+.score-card{min-width:0}.score-card h3{margin:0}.score-highlights{font-size:13px;line-height:1.6;color:#65786d;margin:12px 0 0}
+.score-detail,.fineprint{font-size:12px;color:#73847a;margin-top:12px}
+.score-detail summary,.fineprint summary,.sources summary{cursor:pointer;font-size:13px;color:#547969;font-weight:600;list-style-position:inside}
+.score-detail[open],.fineprint[open]{border-top:1px solid #e6ece5;padding-top:9px}
+.score-row{border-top:1px solid #edf0eb;padding:10px 0;font-size:13px}
+.score-row:first-of-type{margin-top:8px}.score-row small{display:block;font-size:11px;color:#829188;line-height:1.5;margin-top:3px}
+.stock-panel .stock-head{align-items:start}.stock-panel h2{font-size:25px}
+.stock-panel .value strong{font-size:27px}.sources{padding:17px 22px}.sources[open] summary{margin-bottom:12px}
+.daily-reason{font-size:12px;margin:4px 0;line-height:1.5}
+.daily-score strong{display:block;font-size:19px;font-weight:600}.daily-score small{line-height:1.5}
+.daily-action{border-radius:9px}
+footer{border-top:1px solid #dfe6dc;margin-top:24px}
+@media(max-width:700px){.hero{margin:24px 0}.hero h1{font-size:29px}.hero-image{max-height:150px}.hero p{margin-top:7px}
+.weights{margin-top:16px;gap:5px}.weights b{font-size:16px}.weights span{margin:0}
+.stock-panel .stock-head{align-items:start}.stock-panel .value strong{font-size:24px}
+.daily-item{grid-template-columns:28px minmax(0,1fr)}.daily-score{display:block;grid-column:2}.daily-score strong{display:inline-block}.daily-score small{display:inline;margin-left:8px}.daily-action{display:block;margin-top:8px}}
