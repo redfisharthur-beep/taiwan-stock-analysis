@@ -116,29 +116,3 @@ footer{text-align:center;border-top:1px solid #dfe6dc;margin-top:24px;padding:35
  #financial-grid,.compare-list{grid-template-columns:1fr}
  .suggestion{font-size:17px}
 }
-
-
-/* 全市場清單：僅每頁 30 檔，桌機與手機皆可閱讀。 */
-#universe-panel{background:#eef1f2;border-color:#d9e3e8}
-.universe-form{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:12px 0}
-.universe-form label{font-size:15px;font-weight:500}
-.universe-form select{font:inherit;border:1px solid #d7e1d9;border-radius:10px;background:#fffefa;color:#344740;padding:10px}
-.universe-form input{min-width:130px;flex:1;width:200px}
-.universe-list{display:grid;gap:8px;margin-top:12px}
-.universe-entry{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,.9fr) minmax(0,1.2fr) minmax(0,.8fr) auto;gap:12px;align-items:center;border:1px solid #dde5e8;background:#fffefa;padding:12px 14px;border-radius:12px}
-.universe-entry .stock-id{font-size:18px;font-weight:700;color:#344d47}
-.universe-entry .stock-info{font-size:14px;font-weight:400;color:#657a71}
-.universe-entry .stock-score{font-size:18px;color:#354e41}
-.universe-entry .stock-score small{display:block;font-size:14px;color:#687b72;font-weight:400}
-.universe-entry .stock-status{font-size:14px;color:#587267}
-.universe-entry button{font-size:16px;padding:9px 14px}
-.universe-pager{display:flex;justify-content:center;align-items:center;gap:12px;margin-top:15px}
-.universe-pager span{font-size:15px}
-@media(max-width:700px){
- .universe-form label{display:none}
- .universe-form input{min-width:0;flex-basis:100%}
- .universe-entry{grid-template-columns:minmax(0,1fr) auto;gap:8px}
- .universe-entry .stock-score{grid-column:1;grid-row:auto}
- .universe-entry .stock-status{grid-column:1;font-size:13px}
- .universe-entry button{grid-column:2;grid-row:1 / span 4;align-self:center}
-}
