@@ -18,7 +18,7 @@ export function setupKline(canvas,tooltip,raw){
  const lo=Math.min(...rows.map(r=>r.low)),hi=Math.max(...rows.map(r=>r.high)),pad=Math.max((hi-lo)*.08,hi*.003,0.1);
  const bottom=lo-pad,upper=hi+pad,rate=(priceBottom-top)/(upper-bottom),y=v=>priceBottom-(v-bottom)*rate;
  const slot=plot/rows.length,volMax=Math.max(1,...rows.map(r=>r.volume||0));
- ctx.fillStyle="#fff";ctx.fillRect(0,0,width,height);ctx.font="12px system-ui,sans-serif";ctx.textAlign="right";ctx.textBaseline="middle";
+ ctx.fillStyle="#fff";ctx.fillRect(0,0,width,height);ctx.font='700 12px "Noto Sans TC",sans-serif';ctx.textAlign="right";ctx.textBaseline="middle";
  for(let i=0;i<=4;i++){const val=bottom+(upper-bottom)*i/4,Y=y(val);ctx.strokeStyle="#e9eeeb";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,Y);ctx.lineTo(width-right,Y);ctx.stroke();ctx.fillStyle="#71837a";ctx.fillText(val.toFixed(val<10?2:1),left-8,Y);}
  ctx.textAlign="center";ctx.textBaseline="top";
  const ticks=[0,Math.floor((rows.length-1)/2),rows.length-1];for(const i of ticks){const X=left+(i+.5)*slot;ctx.fillStyle="#7b8b80";ctx.fillText(rows[i].date.slice(5),X,330);}
