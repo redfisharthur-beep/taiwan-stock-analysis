@@ -35,7 +35,7 @@ async function mockWorker(path){
  }finally{globalThis.fetch=originalFetch;globalThis.caches=originalCache}
 }
 test("whole-price observations include listed, OTC and both-market ETF without P/E scores for funds",async()=>{
- const response=await mockWorker("/api/top5");
+ const response=await mockWorker("/api/observations");
  assert.equal(response.status,200);
  const data=await response.json();
  assert.equal(data.priceCeiling,null);
