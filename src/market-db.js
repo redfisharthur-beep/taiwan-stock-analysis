@@ -40,7 +40,7 @@ export async function getMarketSummary(db){
    SUM(CASE WHEN p.financial_period IS NOT NULL THEN 1 ELSE 0 END) AS finance,
    SUM(CASE WHEN p.technical_date IS NOT NULL THEN 1 ELSE 0 END) AS technical,
    SUM(CASE WHEN p.chips_date IS NOT NULL THEN 1 ELSE 0 END) AS chips,
-   SUM(CASE WHEN c.industry!='ETF' AND json_extract(p.score_json,'$.coveragePercent')=100
+   SUM(CASE WHEN COALESCE(c.industry,'')!='ETF' AND p.market_date=c.quote_date AND json_extract(p.score_json,'$.coveragePercent')=100
      AND json_extract(p.score_json,'$.score') IS NOT NULL
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullCoverage,
    MAX(p.fetched_at) AS lastResearch
