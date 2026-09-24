@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#879b91"><meta name="description" content="以公開資料交叉核對的台股研究工具，清楚標示資料日期與缺漏。">
+<title>台股研究室｜上市櫃股票資料核對</title><link rel="stylesheet" href="/style.css"></head>
+<body><div class="shell">
+<header class="top"><div class="logo"><span class="mark">研</span><div><strong>台股研究室</strong><small>資料有據，分析有序</small></div></div><span class="tag">公開資料研究工具 · 非即時行情</span></header>
+<main><section class="hero"><div><div class="eyebrow">TAIWAN STOCK RESEARCH</div><h1>看懂數據，再做判斷。</h1><p>結合 FinMind 與證交所、櫃買中心官方行情，保留來源、日期與資料缺漏；Goodinfo 提供同日數值人工核對。</p></div><div class="weights"><div><b>50%</b><span>基本面</span></div><div><b>10%</b><span>消息面</span></div><div><b>20%</b><span>籌碼面</span></div><div><b>20%</b><span>技術面</span></div></div></section>
+<section class="panel search"><label for="ticker">股票代號</label><form id="search"><input id="ticker" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="例如 2330" required><button id="submit" type="submit">開始分析 <span aria-hidden="true">→</span></button></form><div id="status" role="status" aria-live="polite">資料會標示實際交易日；不以「目前時間」冒充股價日期。</div></section>
+<div id="result" hidden><section class="panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><div id="asof" class="muted"></div></div><div class="value"><small>FinMind 收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div><div id="verify" class="notice"></div><div id="overview" class="overview"></div><div id="warnings" class="muted"></div></section>
+<section class="scoring" id="parts"></section>
+<section class="panel"><h3>Goodinfo 同日數值比對</h3><p class="muted">本站不擷取 Goodinfo 數據。請由下方連結查看原站「相同日期」收盤價，再自行輸入。此結果只保存在目前頁面，不會當成自動化驗證或加入評分。</p><a id="goodinfo" class="text-link" href="#" target="_blank" rel="noopener noreferrer">開啟 Goodinfo 個股頁 ↗</a><div class="compare"><label for="good-date">Goodinfo 交易日期</label><input type="date" id="good-date"><label for="good-price">Goodinfo 收盤價（元）</label><input type="number" id="good-price" min="0.01" step="any" placeholder="請手動輸入"><button id="compare-btn" type="button" class="outline">核對數值</button></div><div id="compare-out" class="notice" role="status">尚未進行 Goodinfo 人工核對。</div><p class="muted">重要：人工輸入數值可能有誤；兩個網站若引用同一原始來源，也不構成獨立來源驗證。</p></section>
+<section class="panel"><h3>研究來源與日期</h3><div id="sources"></div></section></div>
+</main><footer>研究用途，不提供投資建議。資訊可能延遲、修正或缺漏。© 台股研究室</footer></div><script type="module" src="/app.js"></script></body></html>
