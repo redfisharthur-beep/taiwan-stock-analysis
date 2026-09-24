@@ -1,6 +1,6 @@
 import test from "node:test";import assert from "node:assert/strict";
 import {concentration,archivedHoldingForStock} from "../src/holding.js";
-import {eventKind,parseDisclosures,corroborate,scoreNews,researchNews} from "../src/news.js";
+import {eventKind,parseDisclosures,corroborate,scoreNews,researchNews,discoverNews} from "../src/news.js";
 import {assessUndervaluation} from "../src/value.js";
 import {scoreStock} from "../src/scoring.js";
 function weekly(date,largePct=10){
@@ -115,4 +115,35 @@ test("industry event requires a licensed feed and two original publishers matchi
   const insufficient=await researchNews("2330","2026-09-24","上市",env,{rows:[],error:null},"台積電");
   assert.equal(insufficient.items.find(x=>x.name==="產業事件"),undefined);
  }finally{globalThis.fetch=original}
+});
+
+test("missing TDCC archive reports the real access failure instead of a generic pending badge",async()=>{
+ let status=null;
+ const result=await archivedHoldingForStock("2330","2026-09-24",async()=>({ok:false,status:403}),
+  {onStatus:next=>{status=next}});
+ assert.equal(result,null);
+ assert.equal(status.code,"archive_index_http");
+ assert.match(status.reason,/403/);
+});
+test("news discovery uses article-origin headlines only, deduplicates URLs, and does not claim a license",async()=>{
+ const fake=[
+  {url:"https://www.moneydj.com/kmdj/news/newsviewer.aspx?a=1",
+   title:"台積電產能最新公開市場報導",seendate:"20260924T110000Z"},
+  {url:"https://www.moneydj.com/kmdj/news/newsviewer.aspx?a=1#fragment",
+   title:"台積電產能最新公開市場報導",seendate:"20260924T110000Z"},
+  {url:"https://www.cna.com.tw/news/afe/202609240001.aspx",
+   title:"台積電公布最新營收資訊",seendate:"20260924T110000Z"},
+  {url:"http://invalid.example.com/test",title:"台積電測試新聞",seendate:"20260924T110000Z"},
+  {url:"https://www.reuters.com/world/2026-09-25/test",
+   title:"台積電新聞日期比市場新",seendate:"20260925T110000Z"}
+ ];
+ const discovered=await discoverNews("台積電","2026-09-24",async()=>{
+  const bytes=new TextEncoder().encode(JSON.stringify({articles:fake}));
+  return {ok:true,arrayBuffer:async()=>bytes.buffer};
+ });
+ assert.equal(discovered.articles.length,2);
+ assert.ok(discovered.articles.some(x=>x.publisher==="中央社"));
+ assert.ok(discovered.articles.some(x=>x.publisher==="MoneyDJ 理財網"));
+ assert.ok(discovered.articles.every(x=>x.verification==="headline_metadata_only"));
+ assert.equal(discovered.articles.find(x=>x.url.includes("reuters")),undefined);
 });
