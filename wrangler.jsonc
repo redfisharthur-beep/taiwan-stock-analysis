@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "taiwan-stock-analysis",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-24",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "observability": { "enabled": true }
+}
