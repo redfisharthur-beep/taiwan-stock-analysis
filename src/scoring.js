@@ -183,9 +183,10 @@ export function scoreStock({
  const newsDelta=newsLatest?
   (newsLatest.kind==="order_won"?1:-1)*
   (newsLatest.verification==="independent_corrob"?5:2):0;
- const news=[part("消息事件調整",0,newsDelta,newsLatest?.title||"無已核實加減分事件",
+ // News score is signed. part() clamps 0..max, so it cannot encode deductions.
+ const news=[{...part("消息事件調整",0,0,newsLatest?.title||"無已核實加減分事件",
   newsLatest?.date||null,newsLatest?.source||null,
-  newsLatest?"已核實公告；依事件類型 "+(newsDelta>0?"加分":"扣分"):"未核實正負面事件，調整 0 分")];
+  newsLatest?"已核實事件："+(newsDelta>0?"加分":"扣分"):"無已核實加減分事件"),score:newsDelta}];
  const chips=[
   part("法人近五日淨買賣／成交量",15,flowScore===null?null:round(flowScore*1.5),flowStats?
    {netShares:flowStats.net,totalShares:flowStats.volume,ratioPct:flowStats.ratio,
