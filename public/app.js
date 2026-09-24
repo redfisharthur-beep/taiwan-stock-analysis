@@ -6,7 +6,7 @@ let current=null;
 function message(node,text,bad=false){node.textContent=text;node.className="notice"+(bad?" bad":"");}
 function groupCard(name,part){
  const box=el("section","","panel score-card"),head=el("div","","card-head");
- head.append(el("h3",name),el("span",part.covered?part.earned+" / "+part.covered:"待補資料","pill"));box.append(head);
+ head.append(el("h3",name),el("span",part.earned+" / "+part.max+" 分 · 涵蓋 "+part.covered+"/"+part.max,"pill"));box.append(head);
  const highlights=part.items.filter(i=>i.score!==null).sort((a,b)=>b.score/b.max-a.score/a.max).slice(0,2);
  box.append(el("p",highlights.length?highlights.map(i=>i.name+"："+fmt(i.value)).join(" · "):"尚無可核對資料","score-highlights"));
  const details=el("details","","score-detail"),summary=el("summary","查看計分明細");details.append(summary);
@@ -47,7 +47,7 @@ function present(d){
   "行情待核對："+d.verification.state,d.verification.state==="不一致");
  const stats=$("overview");stats.replaceChildren();
  for(const [name,value] of [["綜合分數",d.score.score===null?"未完成":d.score.score+" 分"],
-  ["已評項目",d.score.observedPoints+" 分"],["資料涵蓋",d.score.coveredPoints+" / 100"]]){
+  ["已評子項小計",d.score.observedPoints+" 分"],["資料涵蓋權重",d.score.coveredPoints+" / 100"]]){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
  }
  $("warnings").textContent=d.sourceWarnings.length?"部分來源暫未取得，詳見下方明細。":"";
@@ -99,7 +99,7 @@ function present(d){
  source(sources,"FinMind · "+d.finmind.date,"https://finmindtrade.com/");
  if(d.official)source(sources,d.official.source+" · "+(d.official.date||"日期未提供"),d.official.url);
  source(sources,"Goodinfo · "+(d.goodinfo?.day||"日期未確認"),d.links.goodinfo);
- source(sources,"公開資訊觀測站（目前僅提供原始公告連結，尚未自動評分）",d.links.mops);
+ source(sources,"公開資訊觀測站（事件須核實才計分）",d.links.mops);
  for(const warning of d.sourceWarnings||[])sources.append(el("p","資料更新提示："+warning,"muted"));
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
 }
@@ -162,7 +162,7 @@ async function refreshDaily(){
     const p=stock.parts[key];points.append(el("span",label+" "+(p.covered?p.earned+"/"+p.covered:"待補")));
    }body.append(points);
    for(const reason of (stock.reasons||[]).slice(0,2))
-    body.append(el("p",reason.name+" · "+reason.score+"/"+reason.max+" 分","daily-reason"));
+    body.append(el("p",(reason.reason||reason.name)+"（"+reason.score+"/"+reason.max+" 分）","daily-reason"));
    right.append(el("strong",stock.observedPoints+" 分"),
     el("small","已評項目 · "+stock.coveredPoints+"/100"));
    const button=el("button","查看分析 →","daily-action");button.type="button";
