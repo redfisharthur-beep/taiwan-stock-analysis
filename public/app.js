@@ -72,13 +72,13 @@ function groupCard(name,part,holdingStatus=null){
  const delta=part.items.find(i=>i.name==="消息事件調整")?.score??0;
  head.append(el("h3",name),el("span",isNews?
   "消息加減 "+(delta>0?"+":"")+delta+" 分":
-  numberText(part.earned)+" / "+part.max+" 分 · 計分資料 "+part.covered+"/"+part.max,"pill"));
+  numberText(part.earned)+" / "+part.max+" 分"+(part.covered<part.max?" · 尚缺 "+(part.max-part.covered)+" 分資料":""),"pill"));
  box.append(head);
  const details=el("div","","score-detail");
  for(const item of part.items){
   const row=el("section","","score-row"),label=el("div","","row-head");
   label.append(el("span",item.name));
-  if(!isNews)label.append(el("strong",item.score===null?"待查":item.score+" / "+item.max+" 分"));
+  if(!isNews)label.append(el("strong",item.score===null?(item.value===null?"尚無資料":"待補比較資料"):item.score+" / "+item.max+" 分"));
   row.append(label);
   for(const entry of metricDetails(item)){
    const metric=el("div","","score-metric");
@@ -87,9 +87,14 @@ function groupCard(name,part,holdingStatus=null){
    row.append(metric);
   }
   if(item.score===null){
-   const reason=item.name==="400張以上持股三週趨勢"?"尚缺三期可核實的每週集保持股資料":
+   const reason=item.name==="400張以上持股三週趨勢"?
+    (holdingStatus?.reason||"需連續三週集保持股資料"):
     item.name==="量價"?"近20日成交量不足":
-    item.name==="EPS 與去年同季"?"同季 EPS 歷史資料不足":"來源資料不足";
+    item.name==="EPS 與去年同季"?"需本季及去年同季 EPS":
+    item.name==="估值／本益比"?"需足夠的歷史本益比":
+    item.name==="獲利品質與負債"?"需同一期現金流、稅前淨利與負債":
+    item.name==="法人近五日淨買賣／成交量"?"需連續五個已公布交易日":
+    "尚缺完整比較期";
    row.append(el("small",reason,"metric-pending"));
   }
   details.append(row);
@@ -117,7 +122,7 @@ function renderFinancials(d){
   ["毛利率",f.grossMargin,"%",f.incomeDate,"同一報表期毛利／營收"],
   ["營業利益率",f.operatingMargin,"%",f.incomeDate,"同一報表期營業利益／營收"],
   ["淨利率",f.netMargin,"%",f.incomeDate,f.missingReasons?.netMargin||"同一期淨利／營收"],
-  ["報表期 ROE（簡化）",f.quarterlyRoe,"%",f.incomeDate,f.missingReasons?.quarterlyRoe||"同一期淨利／權益；非年化"],
+  ["報表期 ROE（簡化）",f.quarterlyRoe,"%",f.roeDate||f.incomeDate,f.missingReasons?.quarterlyRoe||"同一期淨利／權益；非年化"],
   ["流動比率",f.currentRatio," 倍",f.balanceDate,"流動資產／流動負債；金融業口徑不同"],
   ["負債比",quality.value?.debtRatioPct??f.debtRatio,"%",quality.date||f.balanceDate,"負債／總資產；需參照產業特性"],
   ["營業現金流",cash.value??f.operatingCashFlow,"",cash.date||f.cashDate,"公開財報原始單位；可能為年初至當季累計"],
