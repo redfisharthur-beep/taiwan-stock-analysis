@@ -86,9 +86,22 @@ function present(d){
  }
  const sources=$("sources");sources.replaceChildren();
  const health=$("data-health");health.replaceChildren();
+ const broker=d.brokerVerification||{state:"not_configured"};
+ const brokerLabels={matched:"永豐完整日線與官方／FinMind 同日收盤一致（不重複給分）",
+  mismatch:"永豐完整日線與其他來源同日價格有差異，保留官方及FinMind原始分數",
+  finmind_missing:"永豐資料有取得，但FinMind同日原始行情不足，未視為三方一致",
+  different_date:"永豐未取得同一已完成交易日，不比較不同日期",
+  unavailable:"永豐歷史行情暫不可用，原本分析照常進行",
+  not_configured:"永豐連線尚未設定完整",
+  invalid_data:"永豐回傳資料格式異常，不加入分析",
+  not_checked:"本次尚未執行永豐歷史資料核對"};
+ health.append(el("p","永豐 Shioaji 後端自動核對："+(brokerLabels[broker.state]||"核對未完成")+
+   (broker.useInPublicScoring?" · 已允許使用核對後券商日線作技術資料後備":
+    " · 無券商行情公開再展示授權時不把私人行情帶入公開計分"),"muted"));
  const mode=d.score?.technicalMode||"unavailable";
  health.append(el("p","技術分析資料："+(mode==="adjusted"?"使用還原價":
-  mode==="raw"?"使用未還原日行情（除權息可能影響指標）":"歷史行情不足，尚未計分"),"muted"));
+  mode==="raw"?"使用FinMind未還原日行情（除權息可能影響指標）":
+  mode==="broker_raw"?"使用經同日核對的永豐未還原分K彙整日線（不含未驗證單位的成交量）":"歷史行情不足，尚未計分"),"muted"));
  for(const dataset of d.datasetHealth||[]){
   const status=dataset.status==="ok"?"已取得 "+dataset.records+" 筆":
    dataset.status==="empty"?"本次查無資料":"取得失敗";
@@ -103,23 +116,6 @@ function present(d){
  for(const warning of d.sourceWarnings||[])sources.append(el("p","資料更新提示："+warning,"muted"));
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
 }
-$("sinopac-owner-check").addEventListener("click",async()=>{
- if(!current)return;
- const token=$("sinopac-owner-token").value.trim(),result=$("sinopac-owner-result");
- if(token.length<32){result.textContent="請輸入 Cloudflare 設定的私人測試碼（至少32字元），不是券商金鑰。";return;}
- const button=$("sinopac-owner-check");button.disabled=true;result.textContent="正在取得永豐私人行情…";
- try{
-  const response=await fetch("/api/shioaji/test?stock="+encodeURIComponent(current.stock),{
-   headers:{Authorization:"Bearer "+token,Accept:"application/json"},cache:"no-store"
-  });
-  if(response.status===404)throw Error("測試碼不正確或私人測試未啟用");
-  const data=await response.json();
-  if(!response.ok)throw Error(data.message||data.error||"永豐資料暫不可用");
-  result.textContent="永豐快照："+data.price+" 元 · "+data.observedAt+
-   "。此為私人查詢型行情，不代表官方收盤價；未納入公開評分。";
- }catch(error){result.textContent="尚未取得永豐行情："+error.message}
- finally{button.disabled=false;$("sinopac-owner-token").value="";}
-});
 $("search").addEventListener("submit",async e=>{
  e.preventDefault();const stock=$("ticker").value.trim();
  if(!/^\d{4,6}$/.test(stock)){$("status").textContent="請輸入正確股票代號。";return;}
