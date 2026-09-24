@@ -276,7 +276,7 @@ function renderStockCard(stock){
  }
  if(stock.kind!=="etf")addChecks(body,stock.checks||[]);
  // A missing valuation flag is never replaced with an unsupported positive label.
- right.append(el("strong",showMetric(stock.close," 元")));
+ right.append(el("strong",showMetric(stock.close,stock.kind==="etf"?"":" 元")));
  const button=el("button","分析","daily-action");
  button.type="button";
  button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
