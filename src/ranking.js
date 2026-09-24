@@ -17,6 +17,8 @@ export function explainHighScore(item){
  case "MACD":return v&&typeof v==="object"?"MACD "+v.macd+"、訊號線 "+v.signal+"，依兩線關係計分。":"";
  case "量價":return "成交量為先前20交易日均量的 "+v+" 倍，搭配價格與均線評估。";
  case "估值／本益比":return "本益比 "+v+" 倍，依預設估值區間計分；跨產業不宜直接比較。";
+ case "營業現金流（初步）":return "最近一期營業現金流 "+v+"，依是否為正數及與去年同期比較給分；尚未完成完整負債分析。";
+ case "融資餘額變化":return "最新單日融資餘額增減 "+v+"（原資料單位），僅屬籌碼變化觀察，不代表未來漲跌。";
  default:return item.note||"依預設研究規則計分。";
  }
 }
