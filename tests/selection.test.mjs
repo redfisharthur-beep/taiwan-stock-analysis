@@ -7,5 +7,5 @@ test("news discovery is evidence metadata only, not a verified event score",asyn
  const mock=async()=>({ok:true,arrayBuffer:async()=>new TextEncoder().encode(JSON.stringify(payload)).buffer});
  const r=await discoverNews("台積電","2026-09-24",mock);
  assert.equal(r.status,"discovered");
- assert.equal(r.articles[0].verification,"not_independently_verified");
+ assert.equal(r.articles[0].verification,"headline_metadata_only");
 });
