@@ -146,7 +146,7 @@ async function computeTopFive(env,mode="daily",exclude=[]){
    reason:mode==="value"?
     passAll?"初步估值與已取得的財務條件符合設定門檻；未推估內在價值":
     "依可取得的官方估值相對排序；未通過或未取得的檢查請看下方標籤":
-    "官方當日收盤價 500 元以下；參考估值與成交金額進行全市場初篩"};
+    "官方當日收盤價 低於 500 元；參考估值與成交金額進行全市場初篩"};
  });
  return {...base,stocks,analyzedCount:investigated.size,
   strictCount:stocks.filter(s=>s.passedAll).length,
