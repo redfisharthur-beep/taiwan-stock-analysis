@@ -1,9 +1,8 @@
-import {finmind,officialQuote,officialCandidates,scanOfficialUniverse,rankUniverseCandidates,normalize,reconcile} from "./providers.js";
+import {finmind,officialQuote,scanOfficialUniverse,rankUniverseCandidates,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
-import {selectDailyLeaders} from "./ranking.js";
 import {getHoldingRows,concentration} from "./holding.js";
-import {loadOfficialDisclosures,researchNews} from "./news.js";
-import {valueWatchlist} from "./value.js";
+import {researchNews} from "./news.js";
+import {assessUndervaluation} from "./value.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
@@ -91,12 +90,12 @@ async function analyze(stock,env,override=null,shared=null){
     .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
   sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links});
 }
-// 一次掃描兩市場官方行情及估值的所有當日四位數個股；每組再選 5 檔做深入資料核對。
-// 免費 Worker 每次 50 次外部請求上限：4 次官方全市場資料 + 5×9 次 FinMind = 49 次。
+// 每日單一名單：官方全市場估值先選五檔，再核對可取得的財報與歷史行情。
+// 免費 Worker 單次子請求目標：六份市場批次資料＋五檔各八份 FinMind，約 46 次。
 // 若 FinMind 或官方資料缺漏，依真實初篩資料顯示，但絕不冒充已完成 100 分評估。
-async function computeTopFive(env,mode="daily",exclude=[]){
+async function computeTopFive(env){
  const universe=await scanOfficialUniverse({priceCeiling:500});
- const candidates=rankUniverseCandidates(universe.stocks.filter(r=>!exclude.includes(r.stock)),mode,5);
+ const candidates=rankUniverseCandidates(universe.stocks,"value",5);
  const marketComplete=universe.marketCount===universe.expectedMarketCount&&
   universe.markets.every(m=>m.date===universe.marketDate&&m.registryAvailable);
  const base={ready:candidates.length>0,marketDate:universe.marketDate,
@@ -137,22 +136,19 @@ async function computeTopFive(env,mode="daily",exclude=[]){
    {label:"財務負債初步檢查",status:!validDeep||leverage?.value?.debtRatioPct==null?
     "unknown":leverage.value.debtRatioPct<=70?"pass":"fail"}];
   const checks=[...row.screening.checks,...checkNotes];
+  const assessment=assessUndervaluation(row,validDeep?deep:null,universe.marketDate);
   const allKnown=checks.every(c=>c.status!=="unknown"),passAll=allKnown&&checks.every(c=>c.status==="pass");
   return {rank:i+1,stock:row.stock,name:row.name,market:row.market,date:row.date,
    close:row.close,turnover:row.turnover,screening:row.screening,checks,
    passedAll:passAll,criteriaMet:checks.filter(x=>x.status==="pass").length,
    criteriaKnown:checks.filter(x=>x.status!=="unknown").length,
-   detailVerified:!!validDeep,observedPoints:validDeep?deep.score.observedPoints:null,
+   ...assessment,detailVerified:!!validDeep,observedPoints:validDeep?deep.score.observedPoints:null,
    coveredPoints:validDeep?deep.score.coveredPoints:0,
    parts:validDeep?Object.fromEntries(Object.entries(deep.score.parts).map(([k,v])=>
     [k,{earned:v.earned,covered:v.covered,max:v.max}])):null,
-   reason:mode==="value"?
-    passAll?"初步估值與已取得的財務條件符合設定門檻；未推估內在價值":
-    "依可取得的官方估值相對排序；未通過或未取得的檢查請看下方標籤":
-    "官方當日收盤價 低於 500 元；參考估值與成交金額進行全市場初篩"};
+   reason:"上市櫃官方行情與估值初步篩選；財報待查者不標記被低估"
  });
  return {...base,stocks,analyzedCount:investigated.size,
-  strictCount:stocks.filter(s=>s.passedAll).length,
   reason:marketComplete?
    "已讀取兩市場公司名冊及當日行情，對符合價格與成交條件者逐檔初篩；僅名單內股票嘗試八項 FinMind 深入核對。":
    "當日兩市場行情未同時齊備；目前名單僅根據可用市場初篩，不可視為完整市場比較。"};
@@ -163,28 +159,23 @@ export default {async fetch(request,env,ctx){
   rankingMode:"whole_market_daily_prescreen_five_deep_research",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.13.0",time:new Date().toISOString()});
- if(url.pathname==="/api/top5"||url.pathname==="/api/value5"){
-  const isValue=url.pathname==="/api/value5";
-  // 排除參數限特定查詢用途；首頁價值名單不排除每日名單。
-  const exclusion=isValue?(url.searchParams.get("exclude")||"").split(",").filter(v=>
-   /^[0-9]{4}$/.test(v)).slice(0,5):[];
-  const exclude=[...new Set(exclusion)].sort();
-  const key=new Request(url.origin+url.pathname+"?exclude="+exclude.join(",")+"&model=0.13.0"),
-   cache=caches.default;
+  version:"0.14.0",time:new Date().toISOString()});
+ if(url.pathname==="/api/top5"){
+  const cache=caches.default;
+  const key=new Request(url.origin+"/api/top5?model=0.14.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
-   const body=await computeTopFive(env,isValue?"value":"daily",exclude);
+   const body=await computeTopFive(env);
    const response=reply(body,200,1800);
    if(body.ready)ctx.waitUntil(cache.put(key,response.clone()));
    return response;
-  }catch(err){return reply({ready:false,stocks:[],reason:"全市場官方資料或分析 API 連線異常，沒有使用舊資料補排名。",
+  }catch(err){return reply({ready:false,stocks:[],reason:"官方資料或分析服務暫時無法取得。",
    detail:String(err.message||err)},503)}
  }
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.12"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.14.0"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=await analyze(stock,env);
