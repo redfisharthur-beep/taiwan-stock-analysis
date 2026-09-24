@@ -8,11 +8,11 @@ const wrangler=JSON.parse(readFileSync(new URL("../wrangler.jsonc",import.meta.u
 
 test("newbie homepage uses single daily list and stock keyword query with simple Analyze action",()=>{
  assert.match(html,/placeholder="輸入股票代碼或文字"/);
- assert.match(html,/每日觀察<\/h2>/);
+ assert.match(html,/綜合評分前五名<\/h2>/);
+ assert.doesNotMatch(html,/id="market-sync"|全市場資料更新狀態|<h3>評分依據<\/h3>/);
  assert.doesNotMatch(html,/新手先看這裡：3 個數字怎麼理解？|class="newbie-guide"/);
- assert.match(js,/\["上市股票"/);
- assert.match(js,/\["上櫃股票"/);
- assert.match(js,/\["ETF"/);
+ assert.match(js,/rows\.length/);
+ assert.doesNotMatch(js,/ETF 技術觀察（獨立評估）/);
  assert.match(js,/el\("div",stock.market,"daily-sub"\)/);
  assert.doesNotMatch(js,/stock.market\+" · 最近收盤 "/);
  assert.doesNotMatch(html,/想查哪一檔股票？|每日觀察 5 檔|價值投資觀察 5 檔|id="value-list"/);
@@ -59,7 +59,7 @@ test("stock research shows observed points separately from coverage and splits E
  assert.match(js,/基本面/);
  assert.match(js,/資料涵蓋/);
  assert.match(js,/綜合分數/);
- assert.match(js,/待資料齊全/);
+ assert.match(js,/待資料齊全|資料未達100%|尚缺/);
  assert.match(js,/const metricDetails=item=>/);
  assert.match(js,/case "EPS 與去年同季":/);
  assert.match(js,/score-metric/);
