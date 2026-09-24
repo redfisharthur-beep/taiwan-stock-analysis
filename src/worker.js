@@ -48,7 +48,7 @@ async function analyze(stock,env,override=null,shared=null){
    holding=concentration(tdccRows,stock,marketDate);
  }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}}
  try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
-   shared?.bulk?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
+   shared?.bulk||shared?.skipNews?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
    shared?.newsByMarket?.[official?.market||override?.market],official?.name||override?.name||"");}
  catch(error){warnings.push("重大訊息核對暫未完成："+String(error.message||error))}
  // Only individual analysis invokes Shioaji; daily five-stock requests must not turn
@@ -129,7 +129,7 @@ async function performScheduled(controller,env){
    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
    "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"};
  try{
-  const response=await analyze(row.stock,env,override,{bulk:false,tdccRows:[],
+  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,tdccRows:[],
    // A stored weekly snapshot is shared across stocks; never re-download TDCC per company.
    cachedHolding:held,newsByMarket:{
     "上市":{rows:[],error:"排程未批次核對新聞"},
@@ -141,6 +141,58 @@ async function performScheduled(controller,env){
 // 每日單一名單：官方全市場估值先選五檔，再核對可取得的財報與歷史行情。
 // 免費 Worker 單次子請求目標：六份市場批次資料＋五檔各八份 FinMind，約 46 次。
 // 若 FinMind 或官方資料缺漏，依真實初篩資料顯示，但絕不冒充已完成 100 分評估。
+function formatDailyStocks(candidates,investigated,marketDate){
+ return candidates.map((row,i)=>{
+  const deep=investigated.get(row.stock)||null,validDeep=deep&&
+   deep.verification?.state==="一致"&&deep.official?.date===marketDate&&
+   deep.finmind?.date===marketDate;
+  const fs=validDeep?deep.score?.parts?.fundamental?.items||[]:[];
+  const eps=fs.find(x=>x.name==="EPS 與去年同季");
+  const cash=fs.find(x=>x.name==="營業現金流（初步）");
+  const leverage=fs.find(x=>x.name==="獲利品質與負債");
+  const checkNotes=[
+   {label:"EPS 為正",status:!validDeep||eps?.value?.eps===undefined?"unknown":eps.value.eps>0?"pass":"fail"},
+   {label:"營業現金流為正",status:!validDeep||typeof cash?.value!=="number"?"unknown":cash.value>0?"pass":"fail"},
+   {label:"財務負債初步檢查",status:!validDeep||leverage?.value?.debtRatioPct==null?
+    "unknown":leverage.value.debtRatioPct<=70?"pass":"fail"}];
+  const checks=[...row.screening.checks,...checkNotes];
+  const assessment=assessUndervaluation(row,validDeep?deep:null,marketDate);
+  const allKnown=checks.every(c=>c.status!=="unknown"),passAll=allKnown&&checks.every(c=>c.status==="pass");
+  return {rank:i+1,stock:row.stock,name:row.name,market:row.market,date:row.date,
+   close:row.close,turnover:row.turnover,screening:row.screening,checks,
+   passedAll:passAll,criteriaMet:checks.filter(x=>x.status==="pass").length,
+   criteriaKnown:checks.filter(x=>x.status!=="unknown").length,
+   ...assessment,detailVerified:!!validDeep,observedPoints:validDeep?deep.score.observedPoints:null,
+   coveredPoints:validDeep?deep.score.coveredPoints:0,
+   parts:validDeep?Object.fromEntries(Object.entries(deep.score.parts).map(([k,v])=>
+    [k,{earned:v.earned,covered:v.covered,max:v.max}])):null,
+   reason:"上市櫃官方行情與估值初步篩選；財報待查者不標記被低估"};
+ });
+}
+
+async function computeStoredFive(env){
+ const db=env.MARKET_DB;
+ const saved=await getDailySaved(db,5);
+ if(!saved.stocks.length)return null;
+ const summary=await getMarketSummary(db),investigated=new Map();
+ const candidates=rankUniverseCandidates(saved.stocks,"value",5);
+ for(const row of saved.stocks){
+  if(!row.profile?.score||!row.profile?.metrics?.verified)continue;
+  investigated.set(row.stock,{score:row.profile.score,verification:{state:"一致"},
+   official:{date:row.date},finmind:{date:row.profileDate,close:row.close}});
+ }
+ const stocks=formatDailyStocks(candidates,investigated,saved.marketDate);
+ return {ready:true,marketDate:saved.marketDate,asOf:new Date().toISOString(),
+  priceCeiling:500,scope:"full_market_stored_daily_prescreen",
+  universe:{total:summary.total,tradable:summary.eligible,
+   marketComplete:summary.markets.length===2&&
+   summary.markets.every(x=>x.date===saved.marketDate&&x.registryAvailable)},
+  stocks,candidateCount:stocks.length,analyzedCount:investigated.size,
+  sourceWarnings:summary.warnings||[],
+  researchProgress:{total:summary.total,finance:summary.finance,
+   technical:summary.technical,chips:summary.chips},
+  reason:"名單依已入庫的官方全市場行情與估值產生；歷史財報、技術與籌碼將依排程分批更新。"};
+}
 async function computeTopFive(env){
  const universe=await scanOfficialUniverse({priceCeiling:500});
  const candidates=rankUniverseCandidates(universe.stocks,"value",5);
@@ -170,32 +222,7 @@ async function computeTopFive(env){
    }catch(error){console.warn("daily research failed for",row.stock,String(error.message||error))}
   }
  }
- const stocks=candidates.map((row,i)=>{
-  const deep=investigated.get(row.stock)||null,validDeep=deep&&
-   deep.verification?.state==="一致"&&deep.official?.date===universe.marketDate&&
-   deep.finmind?.date===universe.marketDate;
-  const fs=validDeep?deep.score?.parts?.fundamental?.items||[]:[];
-  const eps=fs.find(x=>x.name==="EPS 與去年同季");
-  const cash=fs.find(x=>x.name==="營業現金流（初步）");
-  const leverage=fs.find(x=>x.name==="獲利品質與負債");
-  const checkNotes=[
-   {label:"EPS 為正",status:!validDeep||eps?.value?.eps===undefined?"unknown":eps.value.eps>0?"pass":"fail"},
-   {label:"營業現金流為正",status:!validDeep||typeof cash?.value!=="number"?"unknown":cash.value>0?"pass":"fail"},
-   {label:"財務負債初步檢查",status:!validDeep||leverage?.value?.debtRatioPct==null?
-    "unknown":leverage.value.debtRatioPct<=70?"pass":"fail"}];
-  const checks=[...row.screening.checks,...checkNotes];
-  const assessment=assessUndervaluation(row,validDeep?deep:null,universe.marketDate);
-  const allKnown=checks.every(c=>c.status!=="unknown"),passAll=allKnown&&checks.every(c=>c.status==="pass");
-  return {rank:i+1,stock:row.stock,name:row.name,market:row.market,date:row.date,
-   close:row.close,turnover:row.turnover,screening:row.screening,checks,
-   passedAll:passAll,criteriaMet:checks.filter(x=>x.status==="pass").length,
-   criteriaKnown:checks.filter(x=>x.status!=="unknown").length,
-   ...assessment,detailVerified:!!validDeep,observedPoints:validDeep?deep.score.observedPoints:null,
-   coveredPoints:validDeep?deep.score.coveredPoints:0,
-   parts:validDeep?Object.fromEntries(Object.entries(deep.score.parts).map(([k,v])=>
-    [k,{earned:v.earned,covered:v.covered,max:v.max}])):null,
-   reason:"上市櫃官方行情與估值初步篩選；財報待查者不標記被低估"};
- });
+ const stocks=formatDailyStocks(candidates,investigated,universe.marketDate);
  return {...base,stocks,analyzedCount:investigated.size,
   reason:marketComplete?
    "已讀取兩市場公司名冊及當日行情，對符合價格與成交條件者逐檔初篩；僅名單內股票嘗試八項 FinMind 深入核對。":
@@ -228,7 +255,12 @@ export default {async fetch(request,env,ctx){
   const key=new Request(url.origin+"/api/top5?model=0.15.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
-   const body=await computeTopFive(env);
+   let body=null;
+   if(hasMarketDB(env)){
+    try{body=await computeStoredFive(env)}
+    catch(error){console.warn("market database not ready",String(error.message||error))}
+   }
+   if(!body)body=await computeTopFive(env);
    const response=reply(body,200,1800);
    if(body.ready)ctx.waitUntil(cache.put(key,response.clone()));
    return response;
