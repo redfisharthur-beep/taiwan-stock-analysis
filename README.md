@@ -77,7 +77,7 @@ Cloudflare Workers Free 單次 Worker 請求有 50 次外部 subrequest 限額�
 
 ## 首頁標題圖
 
-已建立 `public/images/` 目錄，內有 `.gitkeep` 以便 GitHub 保留空目錄。請在 GitHub 的 `public/images/` 中上傳自己的 `hero-title.png`（建議透明背景，手機也可讀的寬版）。前端會自動顯示該檔；如果尚未上傳或圖片讀取失敗，繼續顯示文字標題，不會有破圖。無須修改程式碼，也不需本機安裝。
+已建立 `public/images/` 目錄，內有 `.gitkeep` 以便 GitHub 保留空目錄。目前 `public/images/stock.png` 已存在；網站**上方標題**直接使用這張圖，手機及電腦依畫面寬度縮放，圖片失效時保留「台股研究室」文字標題。往後若要更新圖樣，直接在原資料夾替換 `stock.png`，不用改網址或新增圖片檔。
 
 ## 重要說明
 
