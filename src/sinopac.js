@@ -1,7 +1,7 @@
 // Private Cloudflare -> Render Shioaji bridge. Never put broker credentials in Workers or browser.
 // Broker quotes are OWNER ONLY until redistribution permissions have been confirmed.
 export const sinopacReady=env=>
-  !!(env.SJ_GATEWAY_URL&&env.SJ_BRIDGE_TOKEN&&env.SJ_OWNER_TEST_TOKEN);
+  !!(env.SJ_GATEWAY_URL&&typeof env.SJ_BRIDGE_TOKEN==="string"&&env.SJ_BRIDGE_TOKEN.length>=32);
 
 const encoder=new TextEncoder();
 async function tokenMatch(provided,expected){
