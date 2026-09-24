@@ -159,7 +159,8 @@ function present(d){
   mode==="broker_raw"?"使用經同日核對的永豐未還原分K彙整日線（不含未驗證單位的成交量）":"歷史行情不足，尚未計分"),"muted"));
  for(const dataset of d.datasetHealth||[]){
   const status=dataset.status==="ok"?"已取得 "+dataset.records+" 筆":
-   dataset.status==="empty"?"本次查無資料":"取得失敗";
+   dataset.status==="empty"?"本次查無資料":
+   dataset.status==="skipped"?"批次模式略過":"取得失敗";
   health.append(el("p",dataset.name+"："+
    status+(dataset.latestDate?" · 最新 "+dataset.latestDate:"")+
    (dataset.status==="ok"?"":" · "+dataset.message),"muted"));
