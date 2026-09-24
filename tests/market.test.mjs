@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {searchOfficialCompanies} from "../src/providers.js";
-import {peerPercentile,buildPeerComparison} from "../src/industry.js";
+import {peerPercentile,buildPeerComparison,buildOfficialIndustryComparison} from "../src/industry.js";
 import {summarizeFinancialStatements} from "../src/fundamentals.js";
 import {hasMarketDB,holdingFromWeeks} from "../src/market-db.js";
 
@@ -62,4 +62,18 @@ test("persisted TDCC weeks form a trend only with three consecutive valid weeks"
  assert.equal(holdingFromWeeks(weeks.slice(1),"2026-09-24").trend,null);
  assert.equal(holdingFromWeeks([{date:"2026-08-01",share:99}],"2026-09-24"),null);
  assert.equal(holdingFromWeeks([{date:"2026-09-18",share:null}],"2026-09-24"),null);
+});
+
+test("official-only industry valuation PR is calculated without D1 and respects date/cohort",()=>{
+ const allStocks=[8,10,12,14,16].map((per,i)=>({stock:String(2001+i),name:"甲"+i,
+  market:"上市",industry:"半導體業",source:"TWSE",date:"2026-09-24",
+  screen:{date:"2026-09-24",per,pbr:i+1,dividendYield:2+i}}));
+ let result=buildOfficialIndustryComparison("2003",{allStocks});
+ assert.equal(result.items.find(x=>x.key==="per").pr,50);
+ assert.equal(result.items.find(x=>x.key==="per").sample,5);
+ assert.equal(result.items.length,3);
+ result=buildOfficialIndustryComparison("2003",{allStocks:allStocks.map((x,i)=>i===0?
+  {...x,screen:{...x.screen,date:"2026-09-23"}}:x)});
+ assert.equal(result.items.find(x=>x.key==="per").pr,null);
+ assert.equal(buildOfficialIndustryComparison("2003",{allStocks:allStocks.map(x=>({...x,industry:null}))}).items.length,0);
 });
