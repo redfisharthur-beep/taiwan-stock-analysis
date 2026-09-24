@@ -16,7 +16,7 @@ export function normalize(prices,revenue,financials,investors,valuation=[],cashF
  revenues:revenue.map(x=>({date:String(x.date??""),revenue:n(x.revenue),revenue_year:x.revenue_year,revenue_month:x.revenue_month})).filter(x=>x.revenue!==null),
  financials:financials.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value)})).filter(x=>x.value!==null),
  institutional:investors.map(x=>({date:String(x.date??""),name:x.name,buy:n(x.buy),sell:n(x.sell)})).filter(x=>x.date&&x.buy!==null&&x.sell!==null),
- valuation:valuation.map(x=>({date:String(x.date??""),per:n(x.PER),pbr:n(x.PBR),dividendYield:n(x.dividend_yield)})).filter(x=>/^\\d{4}-\\d{2}-\\d{2}$/.test(x.date)),
+ valuation:valuation.map(x=>({date:String(x.date??""),per:n(x.PER),pbr:n(x.PBR),dividendYield:n(x.dividend_yield)})).filter(x=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x.date)),
  cashFlows:cashFlows.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value)})).filter(x=>x.date&&x.value!==null),
  margin:margin.map(x=>({date:String(x.date??""),financing:n(x.MarginPurchaseTodayBalance),previousFinancing:n(x.MarginPurchaseYesterdayBalance),short:n(x.ShortSaleTodayBalance),previousShort:n(x.ShortSaleYesterdayBalance)})).filter(x=>x.date&&x.financing!==null&&x.previousFinancing!==null&&x.short!==null&&x.previousShort!==null)
 }}
