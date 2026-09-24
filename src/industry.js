@@ -46,3 +46,39 @@ export function buildPeerComparison(own,peers,{minPeers=5}={}){
   sample:Math.max(0,...items.map(x=>x.sample)),
   note:"同市場、同產業、同報告期且有有效數值才比較；產業資料不完整或樣本不足時不顯示 PR。"};
 }
+
+
+/**
+ * D1 不是同業「當日公開估值」PR 的必要條件。
+ * 直接以既有 TWSE/TPEx 公司名冊與當日官方估值整批資料比同產業；
+ * 無財報逐檔樣本時只回報 PE/PB/殖利率，不能杜撰其他財報 PR。
+ */
+export function buildOfficialIndustryComparison(stock,universe){
+ const rows=universe?.allStocks||[];
+ const own=rows.find(x=>x.stock===stock);
+ if(!own?.industry)return {industry:own?.industry||null,market:own?.market||null,items:[],
+  reason:"官方公司名冊缺少可核實產業分類，暫不計算同業 PR"};
+ const date=own?.screen?.date;
+ if(!date)return {industry:own.industry,market:own.market,items:[],
+  reason:"官方估值表未提供可核對日期，暫不計算同業 PR"};
+ const peers=rows.filter(x=>x.market===own.market&&x.industry===own.industry&&
+  x.screen?.date===date);
+ const metrics=[
+  ["per","本益比","倍",v=>v>0],
+  ["pbr","股價淨值比","倍",v=>v>0],
+  ["dividendYield","殖利率","%",v=>v>=0&&v<=20]
+ ];
+ const items=metrics.map(([key,label,unit,valid])=>{
+  const ownValue=own.screen?.[key];
+  const values=peers.map(x=>x.screen?.[key]).filter(v=>Number.isFinite(v)&&valid(v));
+  const comparable=Number.isFinite(ownValue)&&valid(ownValue)&&values.length>=5;
+  return {key,label,unit,value:Number.isFinite(ownValue)&&valid(ownValue)?ownValue:null,
+   date,pr:comparable?peerPercentile(ownValue,values):null,sample:values.length,
+   source:own.source+"／官方估值表",
+   note:comparable?"PR 越大僅表示此指標數字在同業中越大，非投資優劣":
+    "相同市場、產業與日期的官方有效估值樣本不足五檔，暫不計算 PR"};
+ });
+ return {industry:own.industry,market:own.market,items,
+  sample:Math.max(...items.map(x=>x.sample)),
+  note:"直接比較當日官方同業估值，不需要 D1；財報與技術、籌碼的全市場歷史 PR 仍需各檔相同期間的真實資料。"};
+}
