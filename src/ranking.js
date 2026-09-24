@@ -29,7 +29,7 @@ export function selectDailyLeaders(records,{marketDate,universeSize=null,univers
  for(const r of rows){const sig=coverageSignature(r.score);if(!groups.has(sig))groups.set(sig,[]);groups.get(sig).push(r);}
  const cohort=[...groups.values()].sort((a,b)=>b.length-a.length||b[0]?.score.coveredPoints-a[0]?.score.coveredPoints)[0]||[];
  const fullyValidated=universeSize>0&&universeProcessed===universeSize&&
-  rows.length>=5&&rows.every(x=>x.score.complete&&Number.isFinite(x.score.score));
+  rows.length===universeSize&&rows.length>=5&&rows.every(x=>x.score.complete&&Number.isFinite(x.score.score));
  // 正式榜單必須全市場已處理且排名候選完整 100 分，不能由部分樣本冒充。
  const pool=fullyValidated?rows:cohort;
  const ranked=[...pool].sort((a,b)=>(fullyValidated?b.score.score-a.score.score:b.score.observedPoints-a.score.observedPoints)||
