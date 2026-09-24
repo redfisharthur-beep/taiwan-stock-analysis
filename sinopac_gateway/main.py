@@ -51,10 +51,6 @@ def health(response: Response):
             "bridgeTokenConfigured": len(os.environ.get("SJ_BRIDGE_TOKEN", "")) >= 32}
 
 
-def _client_reset():
-    global _client
-    _client = None
-
 @app.get("/internal/history/{stock}")
 def history(stock: str, date_to: str, response: Response,
             x_bridge_token: str | None = Header(default=None)):
@@ -98,7 +94,7 @@ def history(stock: str, date_to: str, response: Response,
                     all_rows[row["date"]] = row
                 cursor = finish+timedelta(days=1)
         except Exception:
-            _client_reset()
+            # Keep the existing login on a data error; repeated login/retry can exhaust broker limits.
             raise HTTPException(status_code=503, detail="Historical Shioaji data unavailable")
         rows = [all_rows[day] for day in sorted(all_rows)][-90:]
         if not rows:
