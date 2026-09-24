@@ -64,11 +64,21 @@ export async function getMarketPage(db,{market="all",query="",page=1,pageSize=30
   market==="ETF"?" AND c.industry='ETF'":
   market==="股票"?" AND (c.industry IS NULL OR c.industry!='ETF')":"";
  const term=String(query||"").trim().slice(0,30);
- const search=term?" AND (c.stock LIKE ? ESCAPE '\\\\' OR c.name LIKE ? ESCAPE '\\\\')":"";
+ const search=term?" AND (c.stock LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\')":"";
+ const clause=` WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)${filter}${search}`;
+ const args=(["上市","上櫃"].includes(market)?[market]:[]).concat(term?[
+  "%"+term.replace(/[\\%_]/g,"\\ const search=term?" AND (c.stock LIKE ? ESCAPE '\\\\' OR c.name LIKE ? ESCAPE '\\\\')":"";
  const clause=` WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)${filter}${search}`;
  const args=(["上市","上櫃"].includes(market)?[market]:[]).concat(term?[
   "%"+term.replace(/[\\\\%_]/g,"\\\\$&")+"%",
   "%"+term.replace(/[\\\\%_]/g,"\\\\$&")+"%"]:[]);
+")+"%",
+  "%"+term.replace(/[\\%_]/g,"\\ const search=term?" AND (c.stock LIKE ? ESCAPE '\\\\' OR c.name LIKE ? ESCAPE '\\\\')":"";
+ const clause=` WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)${filter}${search}`;
+ const args=(["上市","上櫃"].includes(market)?[market]:[]).concat(term?[
+  "%"+term.replace(/[\\\\%_]/g,"\\\\$&")+"%",
+  "%"+term.replace(/[\\\\%_]/g,"\\\\$&")+"%"]:[]);
+")+"%"]:[]);
  const size=Math.max(1,Math.min(50,Math.trunc(Number(pageSize))||30));
  const p=Math.max(1,Math.min(10000,Math.trunc(Number(page))||1));
  const total=(await db.prepare("SELECT COUNT(*) AS n FROM companies c"+clause).bind(...args).first())?.n||0;
