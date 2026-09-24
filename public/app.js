@@ -26,6 +26,10 @@ function groupCard(name,part){
  for(const item of highlights)for(const line of summaryLines(item))
   summary.append(el("p",line,"score-highlight-line"));
  box.append(summary);
+ if(name==="籌碼面"){
+  const missingHolding=part.items.find(item=>item.name==="400張以上持股三週趨勢"&&item.score===null);
+  if(missingHolding)box.append(el("p","400張以上持股三週趨勢："+(missingHolding.note||"尚無連續三週可核實資料"),"holding-status"));
+ }
  const missing=part.items.filter(i=>i.score===null);
  // Unavailable items remain visible with source-level status in expanded details; omit a duplicated pending summary.
  const details=el("details","","score-detail"),summary=el("summary","查看計分明細");details.append(summary);
@@ -159,6 +163,10 @@ function present(d){
    source.status==="other_market"?"另一市場，非本股來源":
    source.status==="reference_only"?"非獨立消息證據":"尚未連結授權新聞";
   sourceRow(checked,name+"："+status,source.url);
+ }
+ if(d.holdingStatus&&d.holdingStatus.code!=="verified"){
+  const tdccReason=el("p","集保持股："+d.holdingStatus.reason,"muted");
+  $("news-source-status").append(tdccReason);
  }
  const sources=$("sources");sources.replaceChildren();
  const health=$("data-health");health.replaceChildren();
