@@ -30,7 +30,7 @@ export function assessUndervaluation(stock,detail,marketDate){
  const historicalOk=typeof historical==="number"&&Number.isFinite(historical)&&historical<=25;
  const undervalued=!!(sameDate&&basic&&financialOk&&historicalOk);
  const valuationNote=undervalued?"通過相對估值及財報初步檢查；不等於合理價或保證獲利。":
-  !sameDate?"財報或同日歷史行情待核對，暫不標記被低估。":
+  !sameDate?"估值及財報資料不足":
   !basic?"本益比或淨值比未達相對估值門檻。":
   !historicalOk?"自身歷史本益比缺乏足夠樣本，或尚未落在較低區間。":
   !financialOk?"最新財報的 EPS、現金流或財務結構尚未符合條件。":
