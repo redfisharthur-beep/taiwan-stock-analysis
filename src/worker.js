@@ -73,7 +73,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"on_demand_no_database",version:"0.6.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5");
+  const key=new Request(url.origin+"/api/top5?model=0.6");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env),response=reply(body,200,1800);
@@ -85,7 +85,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.6"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=await analyze(stock,env);
