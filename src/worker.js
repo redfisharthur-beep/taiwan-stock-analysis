@@ -195,7 +195,7 @@ async function performScheduled(controller,env){
  }
  const held=await savedHolding(db,row.stock,row.date);
  try{
-  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,skipArchive:true,tdccRows:[],
+  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,skipArchive:false,tdccRows:[],
    // A stored weekly snapshot is shared across stocks; never re-download TDCC per company.
    cachedHolding:held,newsByMarket:{
     "上市":{rows:[],error:"排程未批次核對新聞"},
