@@ -124,7 +124,7 @@ function renderFinancials(d){
   const display=label==="營業現金流"&&typeof value==="number"?
    (value>0?"正值":value<0?"負值":"零")+"（金額詳見來源）":nval(value,unit);
   box.append(el("span",label),el("strong",display));
-  if(note)box.title=(date?date+" · ":"")+note;
+  // Reporting dates and source methodology remain in the data-health panel and API, not repeated here.
   target.append(box);
  }
 }
