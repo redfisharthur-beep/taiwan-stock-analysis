@@ -1,0 +1,2 @@
+# 只供本機測試。正式上線請在 Cloudflare Workers > Settings > Variables and Secrets 建立 Secret。
+FINMIND_TOKEN=replace_with_your_own_key
