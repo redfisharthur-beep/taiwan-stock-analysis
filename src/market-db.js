@@ -62,65 +62,66 @@ export async function getMarketSummary(db){
 }
 // Only complete, same-session, source-verified research may appear in homepage results.
 // Company scores and ETF technical scores are intentionally two separate scales.
+// One five-item shortlist sourced from the complete, latest-session profile of each candidate.
+// ETF 0–100 display is *fund-specific 30-point technical model normalized to 100*,
+// not a fictitious issuer EPS or 40/30/30 corporate composite.
 export async function getVerifiedTopFive(db){
- const base=`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date,
+ const base=\`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date,
   c.per,c.pbr,c.dividend_yield,p.score_json,p.metrics_json
   FROM companies c JOIN market_profiles p ON p.stock=c.stock
   WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)
    AND c.close>0 AND c.quote_date IS NOT NULL AND p.market_date=c.quote_date
    AND c.quote_date=(SELECT MAX(c2.quote_date) FROM companies c2
      WHERE c2.market=c.market AND c2.last_scan_at=c.last_scan_at)
-   AND json_extract(p.metrics_json,'$.verified')=1`;
- const stockSql=base+` AND COALESCE(c.industry,'')!='ETF'
+   AND json_extract(p.metrics_json,'$.verified')=1\`;
+ const stockSql=base+\` AND COALESCE(c.industry,'')!='ETF'
    AND json_extract(p.score_json,'$.coveragePercent')=100
    AND json_type(p.score_json,'$.score') IN ('integer','real')
    AND json_extract(p.score_json,'$.parts.fundamental.covered')=40
    AND json_extract(p.score_json,'$.parts.technical.covered')=30
    AND json_extract(p.score_json,'$.parts.chips.covered')=30
-   ORDER BY CAST(json_extract(p.score_json,'$.score') AS REAL) DESC,c.stock ASC LIMIT 5`;
- const etfSql=base+` AND c.industry='ETF'
+   ORDER BY CAST(json_extract(p.score_json,'$.score') AS REAL) DESC,c.stock ASC LIMIT 5\`;
+ const etfSql=base+\` AND c.industry='ETF'
    AND json_extract(p.score_json,'$.parts.technical.covered')=30
    AND json_type(p.score_json,'$.parts.technical.earned') IN ('integer','real')
-   ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5`;
+   ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5\`;
  const [stockRows,etfRows]=await Promise.all([db.prepare(stockSql).all(),db.prepare(etfSql).all()]);
-  const stocks=[],etfs=[];
- for(const r of [...(stockRows.results||[]),...(etfRows.results||[])]){
+ const candidates=[];
+ for(const r of stockRows.results||[]){
   let score;try{score=JSON.parse(r.score_json)}catch{continue}
-  if(r.industry==="ETF"){
-   const t=score?.parts?.technical;
-   if(t?.covered!==30||!Number.isFinite(t.earned))continue;
-   etfs.push({stock:r.stock,name:r.name,market:r.market,kind:"etf",
-    close:r.close,date:r.quote_date,technicalScore:t.earned,technicalCoverage:t.covered,
-    screening:{},checks:[]});
-   continue;
-  }
   if(score?.coveragePercent!==100||!Number.isFinite(score.score)||
-     ["fundamental","technical","chips"].some(k=>score.parts?.[k]?.covered!==score.parts?.[k]?.max))
+    ["fundamental","technical","chips"].some(k=>score.parts?.[k]?.covered!==score.parts?.[k]?.max))
    continue;
-  const basic=score.parts.fundamental.items||[];
-  const metric=name=>basic.find(x=>x.name===name)?.value??null;
-  const eps=metric("EPS 與去年同季"),cash=metric("營業現金流（初步）");
-  const leverage=metric("獲利品質與負債");
-  const checks=[
-   ...(typeof eps?.eps==="number"?[{label:"EPS 為正",status:eps.eps>0?"pass":"fail"}]:[]),
-   ...(typeof cash==="number"?[{label:"營業現金流為正",status:cash>0?"pass":"fail"}]:[]),
-   ...(typeof leverage?.debtRatioPct==="number"?
-    [{label:"負債比 70% 以下",status:leverage.debtRatioPct<=70?"pass":"fail"}]:[])
-  ];
-  stocks.push({stock:r.stock,name:r.name,market:r.market,kind:"stock",
-   close:r.close,date:r.quote_date,score:score.score,newsDelta:score.newsDelta??0,
-   coveredPoints:100,parts:Object.fromEntries(["fundamental","technical","chips"].map(k=>
+  const basic=score.parts.fundamental.items||[],metric=name=>basic.find(x=>x.name===name)?.value??null;
+  const eps=metric("EPS 與去年同季"),cash=metric("營業現金流（初步）"),
+   leverage=metric("獲利品質與負債");
+  candidates.push({stock:r.stock,name:r.name,market:r.market,kind:"stock",
+   close:r.close,date:r.quote_date,score:score.score,scoreModel:"company_40_30_30",
+   newsDelta:score.newsDelta??0,coveredPoints:100,
+   parts:Object.fromEntries(["fundamental","technical","chips"].map(k=>
     [k,{earned:score.parts[k].earned,covered:score.parts[k].covered,max:score.parts[k].max}])),
    screening:{per:r.per,pbr:r.pbr,dividendYield:r.dividend_yield},
-   checks,financials:{eps:eps?.eps??null,operatingCashFlow:cash,
+   checks:[{label:"EPS 為正",status:eps?.eps>0?"pass":"fail"},
+    {label:"營業現金流為正",status:cash>0?"pass":"fail"},
+    {label:"負債比 70% 以下",status:leverage.debtRatioPct<=70?"pass":"fail"}],
+   financials:{eps:eps?.eps??null,operatingCashFlow:cash,
     debtRatioPct:leverage?.debtRatioPct??null},detailVerified:true,
    valuationFlag:"not_evaluated"});
  }
- stocks.sort((a,b)=>b.score-a.score||a.stock.localeCompare(b.stock));
- etfs.sort((a,b)=>b.technicalScore-a.technicalScore||a.stock.localeCompare(b.stock));
- return {stocks:stocks.slice(0,5).map((x,i)=>({...x,rank:i+1})),
-  etfs:etfs.slice(0,5).map((x,i)=>({...x,rank:i+1})),
-  selectedStocks:stocks.length,selectedETFs:etfs.length};
+ for(const r of etfRows.results||[]){
+  let score;try{score=JSON.parse(r.score_json)}catch{continue}
+  const t=score?.parts?.technical;
+  if(t?.covered!==30||!Number.isFinite(t.earned))continue;
+  const fundScore=Math.round(t.earned/30*10000)/100;
+  candidates.push({stock:r.stock,name:r.name,market:r.market,kind:"etf",
+   close:r.close,date:r.quote_date,score:fundScore,scoreModel:"etf_technical_30_normalized",
+   coveredPoints:100,technicalScore:t.earned,technicalCoverage:t.covered,
+   screening:{},checks:[],detailVerified:true});
+ }
+ candidates.sort((a,b)=>b.score-a.score||a.stock.localeCompare(b.stock));
+ return {stocks:candidates.slice(0,5).map((x,i)=>({...x,rank:i+1})),
+  selectedStocks:candidates.filter(x=>x.kind==="stock").length,
+  selectedETFs:candidates.filter(x=>x.kind==="etf").length};
 }
 // Paginate on the server: never send thousands of company profiles in one response.
 export async function getMarketPage(db,{market="all",query="",page=1,pageSize=30}={}){
