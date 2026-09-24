@@ -21,11 +21,11 @@ function groupCard(name,part){
   ["單月營收年增率","EPS 與去年同季"].map(label=>scored.find(i=>i.name===label)).filter(Boolean):
   scored.sort((a,b)=>b.score/b.max-a.score/a.max).slice(0,2);
  const highlights=highlighted.length?highlighted:scored.slice(0,2);
- const summary=el("div","","score-highlights");
- if(!highlights.length)summary.append(el("p","尚無可核對資料"));
+ const highlightsBox=el("div","","score-highlights");
+ if(!highlights.length)highlightsBox.append(el("p","尚無可核對資料"));
  for(const item of highlights)for(const line of summaryLines(item))
-  summary.append(el("p",line,"score-highlight-line"));
- box.append(summary);
+  highlightsBox.append(el("p",line,"score-highlight-line"));
+ box.append(highlightsBox);
  if(name==="籌碼面"){
   const missingHolding=part.items.find(item=>item.name==="400張以上持股三週趨勢"&&item.score===null);
   if(missingHolding)box.append(el("p","400張以上持股三週趨勢："+(missingHolding.note||"尚無連續三週可核實資料"),"holding-status"));
