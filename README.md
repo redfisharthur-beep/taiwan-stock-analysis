@@ -1,103 +1,58 @@
-# v0.14.0｜單一每日觀察名單、整合相對估值與財報核對
+# 台股研究室 v0.15.0
 
-首頁原始 `public/index.html` 已移除頂部附加介紹、日期、冗長統計及獨立的「價值投資觀察 5 檔」區塊。從 `public/app.js` 直接移除其獨立 AJAX 流程；`public/style.css` 已重新整理為單一來源樣式表，不再在檔尾堆疊版本覆蓋。首頁只保留一份「每日觀察 5 檔」名單（官方最近收盤價 **低於 500 元**），並在其中以「被低估」標籤顯示通過**既定相對估值與財務證據**檢查的股票。沒有通過或查無足夠證據時不貼標籤；這不是計算內在價值，也不能表示必然會上漲。
+GitHub `main` 原檔維護：`public/index.html`、`public/app.js`、`public/style.css`、`src/worker.js`。
+介面使用 Zen Maru Gothic 300/400 日系圓潤字（網路字型載入失敗時採系統字型），莫蘭迪色系區分功能。首頁只有「每日觀察」名單，原有股票搜尋已擴充成代碼或中文名稱搜尋（`/api/search?q=...`），按鈕文字為「分析」。候選股票收盤價須低於 500 元；「被低估」標籤只在來源核實、估值與財報標準全數成立時顯示，絕非保證真實內在價值或買入建議。
 
-## 資料來源及實作口徑
+## 已完成的原始碼功能
 
-- **全市場初篩：** 一次讀取證交所及櫃買中心公司名冊、日行情、公開估值表；比較同一交易日、有成交、低於 500 元的上市／上櫃四位數公司，按官方估值及成交條件選出五檔候選。不以只有熱門成交股的樣本冒充全市場；缺價、停牌、異日或名冊不足不得冒充已篩選完成。
-- **五檔進一步查證：** 只對五檔候選查詢 FinMind 個股歷史價、營收、綜合損益表、現金流量表、資產負債表、本益比歷史、法人、還原價（批次暫不抓融資資料）。對應資料集包括 `TaiwanStockFinancialStatements`、`TaiwanStockCashFlowsStatement`、`TaiwanStockBalanceSheet`、`TaiwanStockMonthRevenue`。FinMind 資料集以證交所／櫃買中心及公開資訊觀測站原始公告為定期交叉比對對象；本版尚未完成**全市場逐檔財報批次入庫**。
-- **標記條件：** 必須與官方同日收盤相符、官方本益比在 0–18 倍、股價淨值比在 0–1.8 倍、FinMind 個股自身約一年的本益比分位低於或等於 25%，並有最新可用的正 EPS、正營業現金流、負債率不高於 70%、營業現金流／稅前盈餘比至少 0.7；缺任一資料即不標「被低估」。僅作**相對估值觀察**，財務體質與成長性仍須分產業、分報告期判讀。
-- **財報呈現：** 在單一名單卡顯示最新可用報告期、EPS、營業現金流正負與初步負債比。現金流量表數字可能是年初至當季的累計值，不能把不同報告期直接當成同季數據；財報日期不等於行情日期。FinMind 欄位缺失時顯示待查而不是 0；金融／保險等特殊產業需要不同負債與現金流指標，不宜直接以一般公司條件作投資結論。
-- **資料限制：** 輸入 FinMind token 才能查詢；配額、暫缺／延遲資料、來源不同日等都可能讓名單中的部分股票只具初篩結果。首頁不顯示「已分析全部公司財報」；`/api/top5` 仍回傳必要的日期、掃描範圍與資料狀態，供程式追查而非首頁長文。個股查詢 `/api/analyze` 保留完整來源與日期核對。網站不會把私人永豐 Shioaji 行情批量分發給大眾。
+- `src/providers.js`：證交所／櫃買中心公司名冊、同日行情、官方估值，全市場初篩；保存可辨認的產業分類。公司名冊中無當日成交價的公司仍留在母體，不以舊價冒充有效收盤價。
+- `src/fundamentals.js`：同一報告期毛利率、營業利益率、淨利率、簡化季度 ROE、流動比率、負債比、營收年增率與營業現金流。財報來源缺欄位、不具可比較期間時輸出 null，不能虛構分數。個股頁保留原始詳細分析及更新日期。
+- `src/industry.js`：同市場、同產業及相同報告期的實際有效樣本達 5 檔後計算各指標 PR（原始數值百分位）；樣本不足顯示待查，PR 高低不等於投資優劣。
+- `src/market-db.js` + `migrations/0001_market.sql`：可啟用 D1 市場資料庫，記錄全部上市櫃公司名冊及日行情、估值、每檔不同季度的原始公開財報資料集、近 130 筆日價、完整已評分的技術及籌碼研究結果、獨立來源日期及失敗狀態。不得以 null 充當 0 分。
+- `src/worker.js`：每個交易日的官方全市場資料排程更新、每五分鐘逐檔限量取得 FinMind 財報／歷史價／法人／融資資料、每週同步 TDCC 集保資料；透過 D1 任務欄位分批接續，不在一次免費 Worker 請求中全市場同時連續發 API。網站讀取已入庫行情時直接出名單；無 D1 時保留原先官方資料即時查詢模式。個股頁 `/api/analyze?stock=2330` 增加基本面細項及可取得的同產業 PR。
+- `/api/market-status`：回傳公司數量、財報已入庫數、技術已取得數、籌碼條件已齊數和最近更新時間；`/api/health` 顯示 `marketDBConfigured`。這些數量代表確實儲存的檔數，不代表每檔的所有項目已齊或當日皆已更新。
 
-## 若要完成全市場財報深入分析
+## 必做：在 Cloudflare 綁定 D1 後才能開始實際入庫
 
-應另建立合法額度足夠的排程擷取：每日更新上市／上櫃行情與估值，每月更新營收，每季抓取損益表、資產負債表、現金流量表；用唯一鍵（股票代號、財報年度、季度、合併／個別、報表種類、公告版本）入資料庫並記錄資料來源／公告日期。一般公司與金融業分開模型，區分累計現金流與單季 EPS，比較去年同期且標示缺值。原始財報對照 MOPS／TWSE／TPEx 官方資料，不能只把一千多檔股票在單一免費 Worker 請求中逐檔輪詢，也不應任意提高 FinMind 用量超過授權與配額。**此排程、完整資料庫及全市場財報覆蓋尚未建置**。
+GitHub 原始碼、資料表 migration 和 Cron 已提交，但**無法從只有 GitHub 連線的工作環境，替你的 Cloudflare 帳號建立資料庫、取得資料庫 ID 或替你部署 migration**。目前尚未核實 D1 已綁定／資料已填入，不能宣稱全市場財報、籌碼、技術都已完成。請在已連線 Cloudflare 帳戶的本地 terminal 或 Cloudflare 可用的 CLI 環境按順序執行：
 
-## 過往版本紀錄（以下內容描述舊版，與 v0.13.0 新首頁不一定相同）
+```bash
+npm install
+npx wrangler d1 create taiwan-stock-market
+```
 
-# v0.12.1：永豐改由後端自動核對，移除私人測試介面
+將上一步輸出的實際 `database_id` 填進現有 `wrangler.jsonc` 頂層（與 `triggers` 同層）的 `d1_databases` 配置；不要把假 ID 或 D1 API Token 推到 GitHub。
 
-已移除網頁中的「永豐 Shioaji 私人行情測試」密碼框及 Cloudflare 測試 API；Render 也不再提供舊的快照測試端點。**使用者進入個股詳細頁時，Cloudflare 後端會使用既有 Render 通行碼，在獨立服務上向永豐查詢已完成交易日的歷史分 K，彙整為未還原日線，交叉核對 TWSE／TPEx 官方及 FinMind 的同交易日收盤價。** 只回傳來源核對狀態，不向公開網站發送永豐原始行情。舊的 `SJ_OWNER_TEST_TOKEN` 可從 Cloudflare 移除。
+```json
+"d1_databases": [
+  {
+    "binding": "MARKET_DB",
+    "database_name": "taiwan-stock-market",
+    "database_id": "貼入 Cloudflare 回傳的實際資料庫 ID",
+    "migrations_dir": "migrations"
+  }
+]
+```
 
-- Render 需要從 GitHub main 重新部署新程式；`/health` 應顯示 `version:"0.2.0"`。Cloudflare 需重新部署新版；`/api/health` 應顯示 `version:"0.12.1"` 和 `brokerAutomaticCheck:true`。部署成功**不代表**已取得有效永豐歷史 K 線；請在個股頁下方「資料來源與更新說明」查看自動核對狀態。未取得永豐資料時原有官方及 FinMind 分析繼續運作。
-- 僅當你的 Shioaji 個人行情契約**明確允許向其他訪客再展示或公開衍生分析**時，才可在 Cloudflare 加上 `SJ_MARKET_DATA_REDISPLAY_APPROVED=true`。在該設定下，FinMind 還原／原始歷史不足 61 筆、永豐完整日線至少 61 筆且最新同日價格經官方與 FinMind 三方核對時，可將永豐日線作為**未還原技術指標後備**。因券商分 K 成交量單位未驗證，量價子項仍不計分，最多補技術面 17／20 權重，並不代表個股分數增加 17 分。
-- 當 FinMind 和永豐都具備同日且相同未還原價口徑的 61 筆以上歷史時，後端還會交叉檢查均線、RSI、MACD、20 日波動及 60 日回撤等七項指標（按預設容許誤差）。**價格口徑不同、資料日期不同或資料未齊時不強行比較；交叉核對本身不增加任何原評分權重**。畫面只顯示一致／差異與項目數，不發送個人券商的原始價格或 K 線。\n- 永豐 Shioaji 行情不會提供本站需要的 EPS、月營收、財報負債、法人買賣、集保戶分散度或獨立新聞真實性查核；不能單靠多一個行情 API 就補滿基本面／消息面／籌碼面。考慮個人帳戶查詢限制，**目前永豐僅在個股詳細分析時作後端同日核對，不會為首頁所有榜單候選股輪詢券商行情**；這也不是即時推播服務。
-- 不用提供任何永豐金鑰給本專案的公開前端；`SJ_API_KEY` 和 `SJ_SEC_KEY` 仍只放 Render 的 Secret，Cloudflare 只需 `SJ_GATEWAY_URL` 及 `SJ_BRIDGE_TOKEN`。既有 FinMind 分數與新聞資料規則維持；缺資料不灌分，不用 D1。
+接著執行：
 
-詳見 [Render 自動核對設定與限制](sinopac_gateway/README.md)。
+```bash
+npx wrangler d1 migrations apply taiwan-stock-market --remote
+npx wrangler deploy
+```
 
----
-# v0.11：永豐 Shioaji 已加入私人雲端連線程式（待你在 Render 設金鑰部署）
+在 Cloudflare Worker Secrets 確認 `FINMIND_TOKEN` 仍有效；永豐 `SJ_API_KEY`／`SJ_SEC_KEY` 只放在既有 Render 服務，不放前端或 GitHub。瀏覽 `/api/health` 應顯示 `version:"0.15.0"` 和 `marketDBConfigured:true`；瀏覽 `/api/market-status` 查目前已儲存檔數及更新時間。D1 若尚未初始化則市場同步功能不會啟動，公開網站可繼續使用現有即時查詢模式。
 
-已於同一 GitHub 倉庫新增 `sinopac_gateway/`（Render Python 3.11 + FastAPI + Shioaji 唯讀快照服務），以及 Cloudflare `src/sinopac.js` 與網站個股頁「永豐 Shioaji 私人行情測試」。**你不需要讓家裡電腦開機，也不需要 D1。**
+已配置的 Cron（UTC）：
 
-- Render 服務 Root Directory 設 `sinopac_gateway`，Build Command `pip install -r requirements.txt`，Start Command `uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1`。
-- Render Environment：`SJ_API_KEY`、`SJ_SEC_KEY`、`SJ_BRIDGE_TOKEN`。券商金鑰只保留在 Render，**不要貼到 GitHub 或聊天**。
-- Cloudflare Worker 的 Variables and Secrets：`SJ_GATEWAY_URL`（Render 提供的根網址）、`SJ_BRIDGE_TOKEN`（與 Render 相同的至少 32 字元隨機碼）、`SJ_OWNER_TEST_TOKEN`（另外產生的至少 32 字元私人測試碼）。
-- 部署後，`/api/health` 顯示 `version:"0.11.0"`、`sinopacConfigured:true`；然後在台股研究室查詢 2330，展開「永豐 Shioaji 私人行情測試」，只輸入你**自行設定的私人測試碼**，查詢唯讀行情。
-- 公開網站的 FinMind／官方評分與兩份觀察清單仍不使用個人券商報價。永豐私人快照目前僅供本人測試；是否能讓親友查看，必須先確認其個人行情再展示授權。Shioaji 快照不是即時推播或官方收盤價，也不能補足消息面分數。
+- `0 11 * * 1-5`：交易日台北時間 19:00 以官方名冊與最新行情建立市場快照；官方市場資料未齊時保留前一份資料庫快照。
+- `*/5 * * * *`：逐次選取一檔資料庫中的公司，抓取九項 FinMind 資料集及技術、籌碼來源，保存多期財報與近期歷史價格。資料失敗記錄錯誤並在之後重試；不可超出 FinMind 授權流量、Cloudflare D1 配額或延遲要求。
+- `30 11 * * 5`：台北時間週五 19:30 嘗試讀取 TDCC 週股權分散資料並保存每檔有效股權分散與三週趨勢。
 
-**完整操作步驟：** [sinopac_gateway/README.md](sinopac_gateway/README.md)。首次登入 Shioaji 只有 Render 實際啟動並設定正確金鑰後才會發生；GitHub 單元測試不能證明你的帳戶已登入永豐。
+**完整母體入庫與各檔資料補齊不是同一件事。** 建立資料庫後應持續核對 `/api/market-status` 中的 `total/finance/technical/chips` 差距。停牌、停止交易、財報尚未公告、FinMind 授權或額度不足、資料來源格式改變、金融業特殊會計口徑時，個股財務／技術／籌碼可能仍為待查；不得標示為全市場 100% 完成。現行排程為避免公開行情被個人券商資料再散布，不會對全市場輪詢或輸出私人永豐行情。Cron、資料表 migration 及靜態測試通過也**不等於**已完成 Cloudflare 線上部署或首次完整回填。
 
----
+## 測試
 
-# v0.10 技術面覆蓋修正與可追查資料診斷
+`npm test` 測試行情缺值、篩選、實際財報衍生指標、同產業有效樣本、搜尋、技術及券商資料核對；GitHub Actions 另檢查 JavaScript 語法與 SQL migration。測試本身不能代替正式 API 來源及部署驗收。
 
-當 FinMind `TaiwanStockPriceAdj` 還原價資料集沒有回應、日期較原始成交價晚更新、或與原始價不能對齊至少 61 個交易日時，舊版直接將所有技術指標標為「未涵蓋」，造成已有真實歷史行情的股票仍顯示技術面 0/20。
-
-新版依順序使用：(1) 同日且至少 61 筆真實還原價，成交量使用日期對齊的原始日行情；(2) 還原價不可用時，使用至少 61 筆真實原始日行情計算，並在每個技術指標、個股頁及 API 中明確標示「未還原」與除權息／減資／分割的風險；(3) 兩者皆不足時維持未評分，**不會為增加涵蓋率生成行情、偽造還原價或調整缺值分數**。兩種價格口徑在榜單中不混合排序。
-
-`/api/analyze?stock=2330` 新增 `datasetHealth`（九個 FinMind 資料集各自的成功／空值／失敗狀態、筆數及最近日期）、`missingMetrics`（實際缺漏項目與原因），以及 `score.diagnostics.technical`（採用的技術價格口徑、原始／還原價筆數及最新日期）。畫面「資料來源與更新說明」會顯示這些狀態，方便辨認 PER 歷史筆數、TDCC 三期週資料、授權新聞等未涵蓋原因。
-
-消息面目前缺乏完成來源授權及同事件獨立核對，仍可能 0/10 涵蓋；TDCC 要求三期連續且有效的分散度資料，可能缺 5/20。金融業、首次上市、近期除權息、消息事件及財報日期應依各自口徑額外檢查。**沒有消息不等於 0 分的負面評價，也不等於消息面已完成 10/10 核實**。要補足消息面需實際可用且具權利的來源，不能直接以搜尋新聞標題給分。
-
-新版 `/api/health` 會顯示 `version:"0.10.0"`，三個 API 的快取鍵已更新，部署後不沿用舊評分。GitHub 單元測試只能驗證計分與格式，不能保證 Cloudflare 真實資料集當天可讀；請在正式網址上確認 `/api/analyze?stock=2330` 返回的診斷資料。
-
----
-# 台股研究室 · Cloudflare Workers v0.9
-
-以手機、平板和電腦瀏覽的台股研究網站。使用 GitHub `main` 部署 Cloudflare Workers；**不需要 D1、不保存歷史榜單**。首頁標題圖片是既有的 `public/images/stock.png`，在桌面和手機置中顯示，可直接替換同名檔更新。
-
-## 使用及限制
-
-- **每日綜合觀察 5 檔：** 免費 Workers 模式最多分析同交易日、由官方成交金額預篩的 5 檔候選；付費模式環境變數 `FULL_SCREENING_ENABLED=true` 時可預篩上市與上櫃各 5 檔，但仍**不是全上市櫃股票的完整排名**。若來源缺失或候選未通過核對，顯示少於 5 檔。
-- **價值投資觀察 5 檔：** 另一次無資料庫的 API 請求，先以官方 PE/PBR 預篩，再查 FinMind EPS、現金流、負債、個股近一年 PE 相對位置。需同時具備兩項估值訊號、正 EPS／現金流及初步財務品質；不符合條件就不列出，不製造「已低估」或合理價結論。
-- **固定四面向權重**為基本面 50、消息面 10、籌碼面 20、技術面 20。畫面分別顯示「已評子項小計」（只加總有依據的分數）、「資料涵蓋權重」（0～100），不把缺值計 0、不依已完成項目重新配成 100 分。**100 分完整總評必須涵蓋四大面向所有項目才出現。**
-- 資料日期以官方行情實際交易日及各個 API 原始日期為準。休市時可能顯示前一交易日，並非即時盤中行情；價格核對始終使用 **原始收盤價**。
-
-## v0.9 評分資料及口徑
-
-| 面向 | 固定滿分 | 實際子項 |
-|---|---:|---|
-| 基本面 | 50 | 月營收同比 10；同季 EPS 同比 10；營業現金流 10；現金獲利品質／負債比 10；**個股自身一年本益比分位** 10 |
-| 消息面 | 10 | 經核實重大公告 5；獨立媒體報導 3；產業事件 2（未完成自動核實時標為待評） |
-| 籌碼面 | 20 | **法人近五交易日淨買賣／同五日總成交股數** 10；TDCC 集保 400 張以上**三期連續週占比及增減** 5；融資餘額變化 5 |
-| 技術面 | 20 | **還原價**均線 6；RSI 3；MACD 3；量價 3；**20 日波動年化和 60 日最大回撤** 5 |
-
-### 原始價格和還原價
-
-- `TaiwanStockPrice`：原始開高低收及成交股數，用於官方當日收盤核對、K 線、五日法人淨買賣比率的成交量分母。
-- `TaiwanStockPriceAdj`：除權息調整後歷史價，**僅供技術指標、報酬波動、最大回撤計算**；不與 TWSE／TPEx 原價直接比較。必須同股票、同最新交易日、有至少 61 筆且日期可對應原始行情才給技術面分數。FinMind 帳戶如無權限或資料有缺，技術面顯示待評，不使用未調整價格冒充還原價。K 線仍顯示實際原價。
-- FinMind 不同會員等級可能有不同資料集存取權限。新增 `TaiwanStockBalanceSheet`（資產／負債）、拉長 `TaiwanStockPER` 歷史到約 410 日；若資料缺漏或財務數字不適合比較，就不計分。現金獲利品質使用同現金流量表期間的營業活動淨現金流／稅前淨利，加上最近有效期的負債／資產比。**金融股、特殊股本變動及不同產業應另設模型，不宜直接套一般製造業分數。**
-
-### TDCC 三週趨勢
-
-`src/holding.js` 使用 TDCC 官方週資料的 12–15 級合計（約 400 張以上集保占比），**連續三期有效資料**才能評趨勢分；兩期之間需有合理週距、最新一期需在兩週內。只有單週比例可顯示但**不給股權趨勢分數**。此占比不等於實際前十大股東持股。
-
-### 消息面查證
-
-MOPS／TWSE／TPEx 官方重大事件與合法授權的中央社、MoneyDJ、Reuters 原始報導應按同一事件、原始發稿來源和日期比對。個股頁可透過 GDELT 找到更多媒體連結，**僅當待核實線索展示，不憑標題判利多或利空**。未連結合法授權的媒體內容時，新聞分數可能維持待評；不從外站批次繞過封鎖或複製全文。
-
-## GitHub → Cloudflare 部署
-
-1. 在 Cloudflare Workers & Pages 選擇 Import a repository，連接 `redfisharthur-beep/taiwan-stock-analysis` 的 `main`；選 **Workers**，Build command 留空，Deploy command 設 `npx wrangler deploy`。
-2. Worker → Settings → Variables and Secrets 新增 **Secret** `FINMIND_TOKEN`，值為你的 FinMind 金鑰。不要把金鑰貼到聊天或公開 GitHub。
-3. 開啟 `https://<你的-worker-url>/api/health`，確認 `version:"0.8.0"` 及 `finmindConfigured:true`。這只檢查設定，**還需要測試** `/api/analyze?stock=2330`、`/api/top5`、`/api/value5` 的實際 API 回應和來源日期。
-4. 免費 Workers 單次請求的外部子請求有額度上限。榜單免費模式最多 5 檔、每檔 9 次 FinMind 查詢，會接近限額；若產生網路轉址、配額限制或錯誤就會顯示資料不可用。付費大樣本需另確認 Cloudflare 和 FinMind 的實際計費／使用上限。
-
-## 修改原檔與驗證
-
-介面位於 `public/index.html`、`public/style.css`、`public/app.js`；評分位於 `src/scoring.js`，資料取用 `src/providers.js`、`src/holding.js`，價值篩選 `src/value.js`，後端 `src/worker.js`。修改現有檔案即可，不須新增覆蓋用 CSS。GitHub Actions 執行 JavaScript 語法檢查與單元測試；**測試通過不等於已在你的 Cloudflare Worker 成功完成真實 FinMind/TDCC 介接**。
-
-個股研究用途，不構成報酬保證或個別化買賣建議。
+研究資訊非投資建議，分數和 PR 均不保證未來報酬。
