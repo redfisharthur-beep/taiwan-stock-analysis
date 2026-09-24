@@ -21,8 +21,8 @@ export function scoreStock({prices=[],revenues=[],financials=[],institutional=[]
  const marketDate=latest?.date??null;
  const valuations=[...valuation].filter(r=>num(r.per)>0&&fresh(marketDate,r.date,10)).sort((a,b)=>a.date.localeCompare(b.date));
  const val=valuations.at(-1)||null,pe=val?num(val.per):null;
- const operating=[...cashFlows].filter(r=>r.type==="CashFlowsFromOperatingActivities"&&finite(num(r.value))&&fresh(marketDate,r.date,180)).sort((a,b)=>a.date.localeCompare(b.date));
- const cash=operating.at(-1)||null;
+ const operating=[...cashFlows].filter(r=>r.type==="CashFlowsFromOperatingActivities"&&finite(num(r.value))&&fresh(marketDate,r.date,600)).sort((a,b)=>a.date.localeCompare(b.date));
+ const cash=operating.filter(r=>fresh(marketDate,r.date,180)).at(-1)||null;
  const lastYearCash=cash&&operating.find(r=>r.date===(String(Number(cash.date.slice(0,4))-1)+cash.date.slice(4)))||null;
  const cashValue=cash?num(cash.value):null;
  const cashScore=cashValue===null?null:cashValue<=0?1:lastYearCash&&num(lastYearCash.value)>0&&cashValue>num(lastYearCash.value)?10:7;
