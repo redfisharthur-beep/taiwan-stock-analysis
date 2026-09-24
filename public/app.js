@@ -1,14 +1,31 @@
 import {setupKline} from "./chart.js";
 const $=id=>document.getElementById(id);
 const el=(tag,text="",cls="")=>{const x=document.createElement(tag);x.textContent=String(text??"");if(cls)x.className=cls;return x;};
-const fmt=value=>typeof value==="object"?Object.entries(value||{}).map(([k,v])=>k+" "+v).join("、"):String(value??"—");
+const fmt=value=>typeof value==="object"&&value!==null?
+ Object.entries(value).map(([k,v])=>k+" "+(v??"待查")).join("、"):String(value??"—");
+const summaryLines=item=>{
+ const value=item?.value;
+ if(value&&typeof value==="object"&&!Array.isArray(value)){
+  return Object.entries(value).map(([key,v],i)=>i===0?
+   item.name+"："+key+" "+(v??"待查"):key+" "+(v??"待查"));
+ }
+ return [item.name+"："+fmt(value)];
+};
 let current=null;
 function message(node,text,bad=false){node.textContent=text;node.className="notice"+(bad?" bad":"");}
 function groupCard(name,part){
  const box=el("section","","panel score-card"),head=el("div","","card-head");
  head.append(el("h3",name),el("span",part.earned+" / "+part.max+" 分 · 涵蓋 "+part.covered+"/"+part.max,"pill"));box.append(head);
- const highlights=part.items.filter(i=>i.score!==null).sort((a,b)=>b.score/b.max-a.score/a.max).slice(0,2);
- box.append(el("p",highlights.length?highlights.map(i=>i.name+"："+fmt(i.value)).join(" · "):"尚無可核對資料","score-highlights"));
+ const scored=part.items.filter(i=>i.score!==null);
+ const highlighted=name==="基本面"?
+  ["單月營收年增率","EPS 與去年同季"].map(label=>scored.find(i=>i.name===label)).filter(Boolean):
+  scored.sort((a,b)=>b.score/b.max-a.score/a.max).slice(0,2);
+ const highlights=highlighted.length?highlighted:scored.slice(0,2);
+ const summary=el("div","","score-highlights");
+ if(!highlights.length)summary.append(el("p","尚無可核對資料"));
+ for(const item of highlights)for(const line of summaryLines(item))
+  summary.append(el("p",line,"score-highlight-line"));
+ box.append(summary);
  const missing=part.items.filter(i=>i.score===null);
  // Unavailable items remain visible with source-level status in expanded details; omit a duplicated pending summary.
  const details=el("details","","score-detail"),summary=el("summary","查看計分明細");details.append(summary);
@@ -51,8 +68,8 @@ function renderFinancials(d){
   const box=el("div","","financial-item");
   const display=label==="營業現金流"&&typeof value==="number"?
    (value>0?"正值":value<0?"負值":"零")+"（金額詳見來源）":nval(value,unit);
-  box.append(el("span",label),el("strong",display),
-   el("small",note));
+  box.append(el("span",label),el("strong",display));
+  if(note)box.title=(date?date+" · ":"")+note;
   target.append(box);
  }
 }
@@ -89,8 +106,9 @@ function present(d){
  for(const [name,value] of (isFund?[
   ["產品類別","ETF"],["分析範圍","市場價量"],["收盤日期",d.finmind.date]
  ]:[
-  ["綜合分數",d.score.score===null?"未完成":d.score.score+" 分"],
-  ["已評子項小計",d.score.observedPoints+" 分"],["資料涵蓋權重",d.score.coveredPoints+" / 100"]
+  ["目前已評得分",d.score.observedPoints+" / "+d.score.coveredPoints+" 分"],
+  ["資料涵蓋",d.score.coveredPoints+" / 100"],
+  ["綜合分數",d.score.score===null?"尚無完整資料":d.score.score+" 分"]
  ])){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
  }
@@ -124,15 +142,16 @@ function present(d){
  if(!ev.children.length)ev.append(el("p","最近沒有可顯示的已取得公告；不代表公司沒有消息。","muted"));
  const discovery=news.discovery||{articles:[],status:"not_checked"};
  if(discovery.articles?.length){
-   ev.append(el("p","其他財經報導線索（僅找到標題與原始連結，尚未交叉核實）：","muted"));
+   ev.append(el("h4","重點新聞 · 原文連結（標題線索，尚未交叉核實）"));
    for(const article of discovery.articles.slice(0,5)){
     const row=el("div","","source-line"),link=el("a",article.title);
     link.href=article.url;link.target="_blank";link.rel="noopener noreferrer";
-    row.append(link,el("small"," · "+article.publisher+" · "+article.date+" · 未核實"));ev.append(row);
+    row.append(link,el("small"," · "+article.publisher+" · "+article.date+" · 發現日期／未核實"));ev.append(row);
    }
  }
  const checked=$("news-source-status");checked.replaceChildren();
  for(const source of (news.checked||[])){
+  if(source.status==="other_market"||source.status==="not_connected")continue;
   const name=source.name;
   const status=source.status==="checked"?"已讀取官方公告":
    source.status==="provided"?"已收到授權新聞資料":
