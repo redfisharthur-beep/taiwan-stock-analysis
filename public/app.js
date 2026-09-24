@@ -342,16 +342,22 @@ function renderStockCard(stock){
   el("div",stock.market,"daily-sub"));
  const tags=el("div","","daily-parts");
  if(etf){
-  tags.append(el("span","ETF · 價量技術 "+numberText(stock.technicalScore)+" / 30"),
-   el("span","適用模型折算 "+numberText(stock.score)+" / 100"));
+  tags.append(el("span","ETF 技術 "+numberText(stock.technicalScore)+" / 30"));
  }else{
   for(const [label,key,max] of [["基本面","fundamental",40],["技術面","technical",30],["籌碼面","chips",30]]){
    const part=stock.parts?.[key];
    tags.append(el("span",label+" "+numberText(part?.earned)+" / "+max));
   }
+  const actual=stock.financials||{};
+  if(typeof actual.eps==="number")tags.append(el("span","EPS "+numberText(actual.eps)));
+  if(typeof actual.operatingCashFlow==="number")
+   tags.append(el("span","營業現金流 "+(actual.operatingCashFlow>0?"正值":actual.operatingCashFlow<0?"負值":"零")));
+  if(typeof actual.debtRatioPct==="number")
+   tags.append(el("span","負債比 "+numberText(actual.debtRatioPct)+"%"));
  }
  body.append(tags);
- right.append(el("strong",numberText(stock.score)+" / 100"));
+ right.append(el("strong",etf?"技術 "+numberText(stock.technicalScore)+" / 30":
+  "綜合 "+numberText(stock.score)+" / 100"));
  right.append(el("small",showMetric(stock.close,etf?"":" 元")));
  const button=el("button","分析","daily-action");
  button.type="button";
@@ -360,19 +366,28 @@ function renderStockCard(stock){
 }
 async function refreshDaily(){
  const status=$("daily-status"),list=$("daily-list");
- list.replaceChildren();status.hidden=false;status.textContent="正在讀取完整評分名單…";
+ list.replaceChildren();status.hidden=false;status.textContent="正在讀取核實後的評分資料…";
  try{
   const response=await fetch("/api/observations");
   const d=await response.json();
   if(!response.ok)throw Error(d.reason||"研究服務暫不可用");
-  const rows=(d.stocks||[]).filter(x=>typeof x.score==="number"&&
-    x.coveredPoints===100).slice(0,5);
+  const stocks=(d.stocks||[]).filter(x=>x.kind==="stock"&&
+   typeof x.score==="number"&&x.coveredPoints===100).slice(0,5);
+  const etfs=(d.etfs||[]).filter(x=>x.kind==="etf"&&
+   x.technicalCoverage===30&&typeof x.technicalScore==="number").slice(0,5);
   status.textContent=d.reason||"";
   status.hidden=!status.textContent;
-  for(const stock of rows)list.append(renderStockCard(stock));
-  if(!rows.length){
+  for(const [title,rows] of [["公司股票｜綜合分數前五名",stocks],["ETF｜獨立技術觀察",etfs]]){
+   if(!rows.length)continue;
+   const group=el("section","","daily-group");
+   group.append(el("h3",title,"daily-group-title"));
+   const items=el("div","","daily-group-list");
+   for(const stock of rows)items.append(renderStockCard(stock));
+   group.append(items);list.append(group);
+  }
+  if(!stocks.length&&!etfs.length){
    status.hidden=false;
-   status.textContent=d.reason||"尚無資料涵蓋完整、來源已核實的標的，暫不顯示名單。";
+   status.textContent=d.reason||"尚無資料完整且已核實的標的，暫不顯示名單。";
   }
  }catch(error){status.textContent="觀察名單暫無法更新："+error.message;status.hidden=false;}
 }
