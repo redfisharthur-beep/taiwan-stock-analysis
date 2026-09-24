@@ -6,7 +6,7 @@ import {researchNews} from "./news.js";
 import {assessUndervaluation} from "./value.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
-import {hasMarketDB,saveUniverse,getMarketSummary,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
+import {hasMarketDB,saveUniverse,getMarketSummary,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
@@ -164,11 +164,19 @@ async function performScheduled(controller,env){
  if(!env.FINMIND_TOKEN)return;
  const row=await claimNextCompany(db);
  if(!row)return;
- const held=await savedHolding(db,row.stock,row.date);
- const override={market:row.market,source:row.market==="上市"?"TWSE":"TPEx",name:row.name,
+ const override={kind:row.industry==="ETF"?"etf":"stock",market:row.market,source:row.market==="上市"?"TWSE":"TPEx",name:row.name,
   close:row.close,date:row.date,url:row.market==="上市"?
    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
    "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"};
+ if(row.industry==="ETF"){
+  try{
+   const response=await analyzeETF(row.stock,env,{quote:override,errors:[]});
+   if(!response.ok)throw Error("ETF 深入分析 HTTP "+response.status);
+   await saveETFResearch(db,row,await response.json());
+  }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error))}
+  return;
+ }
+ const held=await savedHolding(db,row.stock,row.date);
  try{
   const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,skipArchive:true,tdccRows:[],
    // A stored weekly snapshot is shared across stocks; never re-download TDCC per company.
