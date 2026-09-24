@@ -3,25 +3,25 @@
 <meta name="theme-color" content="#819a8d"><meta name="description" content="簡單看懂台股研究分數、最新行情與每日觀察名單">
 <title>台股研究室｜簡單看懂股票</title><link rel="stylesheet" href="/style.css"></head>
 <body><div class="shell">
-<header class="top"><div class="logo"><img id="hero-image" class="hero-image" src="/images/stock.png" alt="台股研究室" hidden><strong id="hero-title">台股研究室</strong></div><span class="tag">最新可用交易日資料</span></header>
+<header class="top"><div class="logo"><img id="hero-image" class="hero-image" src="/images/stock.png" alt="台股研究室" hidden><strong id="hero-title">台股研究室</strong></div><span class="tag">上市＋上櫃・官方資料</span></header>
 <main>
 <section class="hero">
  <div class="hero-copy">
-  <h1>股票分析，一眼看懂。</h1>
-  <p>看分數、看原因，再看數據。</p>
+  <h1>選股不用先懂一堆術語</h1>
+  <p>先看每日觀察與價值投資名單，再點進去看「為什麼入選、哪些條件還沒達標」。</p>
  </div>
- <div class="weights" aria-label="分析權重"><div><b>50%</b><span>基本</span></div><div><b>10%</b><span>消息</span></div><div><b>20%</b><span>籌碼</span></div><div><b>20%</b><span>技術</span></div></div>
+ <div class="weights" aria-label="深入研究的四個面向"><div class="weights-title">深入研究看 4 件事</div><div><b>50%</b><span>基本</span></div><div><b>10%</b><span>消息</span></div><div><b>20%</b><span>籌碼</span></div><div><b>20%</b><span>技術</span></div></div>
 </section>
-<section class="panel search"><label for="ticker">查詢股票</label><form id="search"><input id="ticker" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="輸入代號，例如 2330" required><button id="submit" type="submit">查詢</button></form><p id="status" role="status">使用最新可取得的交易日資料。</p></section>
+<section class="panel search"><label for="ticker">想查哪一檔股票？</label><form id="search"><input id="ticker" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="輸入代號，例如 2330" required><button id="submit" type="submit">查詢</button></form><p id="status" role="status">輸入股票代號，即可查看近期行情、資料來源與研究重點。</p></section>
 <section class="panel" id="daily-panel">
- <div class="card-head"><div><div class="eyebrow">DAILY WATCH</div><h2>每日觀察 5 檔</h2></div><span class="pill" id="daily-date">查詢中</span></div>
- <p class="muted" id="daily-status" role="status">正在取得最新資料…</p>
+ <div class="card-head"><div><div class="eyebrow">每日研究清單</div><h2>每日觀察 5 檔</h2><p class="section-intro">每檔最近收盤價不超過 500 元，並顯示入選依據與尚待確認的風險。</p></div><span class="pill" id="daily-date">查詢中</span></div>
+ <p class="muted" id="daily-status" role="status">正在讀取上市、上櫃官方行情…</p><div class="coverage-strip" id="market-coverage" role="status">市場掃描情況載入中…</div>
  <div id="daily-list" class="daily-list"></div>
- <div class="secondary-heading"><h3>價值投資觀察 5 檔</h3><span class="pill" id="value-date">查詢中</span></div>
- <p class="muted" id="value-status" role="status">比較本次候選股的估值、獲利與現金流…</p>
+ <div class="secondary-heading"><div><h3>價值投資觀察 5 檔</h3><p class="section-intro">從可核對的估值資料找出 5 檔供研究；不會因條件太嚴而把名單清空，未達標會清楚標示。</p></div><span class="pill" id="value-date">查詢中</span></div>
+ <p class="muted" id="value-status" role="status">正在比較兩市場官方估值資料…</p>
  <div id="value-list" class="daily-list"></div>
 
- <details class="fineprint"><summary>名單怎麼選？</summary>綜合觀察先看成交活絡的候選，價值觀察另外用官方本益比與淨值比預篩。免費額度每組各分析最多六檔；查證不足時可能少於五檔。兩組都不是全市場完整排名。</details>
+ <details class="fineprint"><summary>名單怎麼選？</summary>從證交所與櫃買中心當日公開行情中的四位數股票逐檔做價格、成交金額與本益比／淨值比／殖利率初篩；兩市場必須是同一交易日才視為完整比較。每日與價值清單各顯示最多五檔、價格不超過 500 元。每張卡顯示有通過、未通過、尚無資料的條件。只有名單中的股票才進一步向 FinMind 取得財報、籌碼、技術資料；不等於市場全部個股已完成全面評分。停牌、無成交價、特殊證券或來源缺漏另列入統計，暫缺資料不補零、不保證任何獲利。</details>
 </section>
 <div id="result" hidden>
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
@@ -36,5 +36,5 @@
 
  <details class="panel sources"><summary>資料來源與更新說明</summary><div id="sources"></div><div id="data-health"></div><p class="muted">財報、籌碼與行情更新時間不同；未取得資料不補零，也不重分配權重。K 線顯示原始價；技術指標可採還原價或明確標記的未還原日行情。</p></details>
 </div>
-</main><footer>資料僅供研究參考，非買賣建議。</footer>
+</main><footer>本平台僅提供公開資訊與研究線索，非投資建議。選股結果不保證報酬，請自行確認資料日期及財務風險。</footer>
 </div><script type="module" src="/app.js"></script></body></html>
