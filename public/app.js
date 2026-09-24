@@ -23,19 +23,6 @@ function source(parent,label,url){
  const row=el("div",label+" ","source-line");
  if(url){const a=el("a","查看 ↗");a.href=url;a.target="_blank";a.rel="noopener noreferrer";row.append(a);}parent.append(row);
 }
-function showGoodinfo(d){
- const g=d.goodinfo||{status:"unavailable",message:"Goodinfo 暫時無法取得"};
- const labels={matched:"同日一致",mismatch:"數值不同",different_day:"日期不同",
-  unverified:"待核對",unavailable:"暫不可用",not_checked:"未查詢",available:"已取得"};
- $("goodinfo-badge").textContent=labels[g.status]||"待核對";
- const text=g.status==="matched"?"同日收盤價一致 · 官方、FinMind、Goodinfo":
-   g.status==="mismatch"?"同日價格不同，請以原始來源確認":
-   g.status==="different_day"?"日期不同，暫不比較":
-   g.status==="unavailable"?"Goodinfo 暫時無法取得；不影響其他資料顯示":
-   g.message||"尚未完成核對";
- message($("goodinfo-result"),text,g.status==="mismatch");
- $("goodinfo").href=g.url||d.links.goodinfo;
-}
 function present(d){
  current=d;$("result").hidden=false;
  $("market").textContent=d.market+" · "+d.stock;
@@ -55,7 +42,6 @@ function present(d){
  const parts=$("parts");parts.replaceChildren();
  for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
   parts.append(groupCard(label,d.score.parts[key]));
- showGoodinfo(d);
  const news=d.newsResearch||{status:"unverified",events:[],checked:[]};
  $("news-status").textContent=news.status==="corroborated_event"?
   "官方公告＋獨立媒體核對："+(news.impact||"影響待觀察")+"（非股價預測）":
@@ -87,7 +73,7 @@ function present(d){
  }
  const checked=$("news-source-status");checked.replaceChildren();
  for(const source of (news.checked||[])){
-  const name=source.name==="Goodinfo! 台灣股市資訊網"?"Goodinfo（本頁僅行情核對）":source.name;
+  const name=source.name;
   const status=source.status==="checked"?"已讀取官方公告":
    source.status==="provided"?"已收到授權新聞資料":
    source.status==="unavailable"?"暫無法讀取":
@@ -98,7 +84,6 @@ function present(d){
  const sources=$("sources");sources.replaceChildren();
  source(sources,"FinMind · "+d.finmind.date,"https://finmindtrade.com/");
  if(d.official)source(sources,d.official.source+" · "+(d.official.date||"日期未提供"),d.official.url);
- source(sources,"Goodinfo · "+(d.goodinfo?.day||"日期未確認"),d.links.goodinfo);
  source(sources,"公開資訊觀測站（事件須核實才計分）",d.links.mops);
  for(const warning of d.sourceWarnings||[])sources.append(el("p","資料更新提示："+warning,"muted"));
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
