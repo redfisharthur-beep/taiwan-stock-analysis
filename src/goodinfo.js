@@ -37,7 +37,11 @@ export async function getGoodinfoQuote(stock,expectedDate,fetcher=fetch){
   if(!response.ok)return {status:"unavailable",url,message:"Goodinfo 暫時無法取得（HTTP "+response.status+"）"};
   if(!/text\/html/i.test(response.headers.get("content-type")||""))return {status:"unavailable",url,message:"Goodinfo 回傳非網頁資料"};
   if(Number(response.headers.get("content-length")||0)>1600000)return {status:"unavailable",url,message:"Goodinfo 頁面資料過大"};
-  const html=await response.text();
+  const bytes=await response.arrayBuffer();
+  if(bytes.byteLength>1600000)return {status:"unavailable",url,message:"Goodinfo 回傳資料過大"};
+  const header=new TextDecoder("iso-8859-1").decode(bytes.slice(0,2048));
+  const charset=(response.headers.get("content-type")||"")+" "+header;
+  const html=new TextDecoder(/(?:charset\\s*=\\s*["']?)(?:big5|cp950)/i.test(charset)?"big5":"utf-8").decode(bytes);
   const parsed=parseGoodinfoQuote(html,stock);
   if(!parsed)return {status:"unavailable",url,message:"Goodinfo 回應無法確認同日收盤價"};
   if(parsed.day!==expectedDate.slice(5).replace("-","/"))return {status:"different_day",url,day:parsed.day,message:"Goodinfo 顯示 "+parsed.day+"，官方是 "+expectedDate.slice(5)+"，日期不同不比價"};
