@@ -18,9 +18,7 @@ button:hover{filter:brightness(.94)}button:disabled{opacity:.6}
 button.outline{background:#e9f0e9;color:#486c58}
 .muted,#status{font-size:16px;color:#71837a;line-height:1.7}
 #status{margin:6px 0 0}
-.newbie-guide{border:1px solid #e3eae0;border-radius:10px;padding:10px 13px;margin:13px 0 16px;color:#536a59;background:#fcfdfb}
-.newbie-guide summary,.fineprint summary,.sources summary,.score-detail summary{cursor:pointer;font-weight:700;color:#466e52}
-.newbie-guide p{font-size:16px;line-height:1.7;margin:10px 0 0}
+.fineprint summary,.sources summary,.score-detail summary{cursor:pointer;font-weight:700;color:#466e52}
 .daily-list{display:grid;grid-template-columns:1fr;gap:10px}
 .daily-group{min-width:0;margin:4px 0 14px}
 .daily-group-title{font-size:23px;margin:8px 0 13px;color:#354e41}
