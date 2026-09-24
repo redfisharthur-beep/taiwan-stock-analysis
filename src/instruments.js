@@ -9,7 +9,7 @@ export function securityKind(code,{company=false,fund=false,quotedName=""}={}){
  // Do not pass ETNs, warrants, REITs or other 00-prefixed products as verified ETFs.
  if(/ETN|指數投資證券|權證|不動產投資信託|REIT/i.test(quotedName))return null;
  if(fund||/ETF|指數股票型基金|主動式基金/i.test(quotedName))return "etf";
- // Quoted 00-prefix codes constitute ETF candidates, not verified ETF identity.
- return null;
+ // TWSE / TPEx quote records for 00-prefixed fund series. Exclude explicit non-ETF names above.
+ return quotedName.trim()?"etf":null;
 }
 export const kindLabel=kind=>kind==="etf"?"ETF":"股票";
