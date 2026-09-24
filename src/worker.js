@@ -1,6 +1,7 @@
 import {finmind,officialQuote,officialCandidates,normalize,reconcile} from "./providers.js";
 import {scoreStock} from "./scoring.js";
 import {selectDailyLeaders} from "./ranking.js";
+import {getGoodinfoQuote,compareGoodinfo} from "./goodinfo.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
@@ -26,12 +27,15 @@ async function analyze(stock,env,override=null){
  const latest=clean.prices.at(-1);
  const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&
  p.high>=Math.max(p.open,p.close,p.low)&&p.low<=Math.min(p.open,p.close,p.high)).slice(-120);
+ const goodinfo=override?
+  {status:"not_checked",message:"觀察榜不大量請求 Goodinfo；點開個股可自動核對。",url:"https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID="+stock}:
+  compareGoodinfo(await getGoodinfoQuote(stock,official?.date),official,latest);
  const links={goodinfo:"https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID="+stock,
  twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
  return reply({stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
   score,candles,sourceWarnings:[...warnings,...(official?[]:officialResult.errors)],links,
-  goodinfo:{mode:"manual_only",note:"Goodinfo 只有同日人工比對入口，尚未進行授權後自動取得及評分。"}});
+  goodinfo});
 }
 // 免 D1：每次快取到期直接由官方最新行情選出流動性候選，再逐檔核對 FinMind。
 // 樣本範圍 10 檔，不能宣稱為全台股綜合得分最高前五。
@@ -65,7 +69,7 @@ async function computeTopFive(env){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"on_demand_no_database",version:"0.4.0",time:new Date().toISOString()});
+  rankingMode:"on_demand_no_database",version:"0.5.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
   const key=new Request(url.origin+"/api/top5");
