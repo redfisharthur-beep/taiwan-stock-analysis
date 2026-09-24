@@ -145,7 +145,7 @@ function renderComparison(d){
 }
 function present(d){
  current=d;$("result").hidden=false;
- $("market").textContent=d.market+" · "+d.stock;
+ $("market").textContent=d.market;
  $("stock-name").textContent=(d.name||"股票")+" "+d.stock;
  $("asof").textContent="查詢時間："+new Date(d.asOf).toLocaleString("zh-TW",{timeZone:"Asia/Taipei"});
  $("close").textContent=d.finmind.close.toLocaleString("zh-TW");
@@ -329,35 +329,33 @@ function addChecks(parent,checks=[]){
  parent.append(list);
 }
 function renderStockCard(stock){
- const card=el("article","","daily-item"),rank=el("div",String(stock.rank),"daily-rank"),
-  body=el("div"),right=el("div","","daily-score"),screen=stock.screening||{};
- const name=el("div","","daily-name");
- name.append(document.createTextNode((stock.name||"股票")+" "+stock.stock));
- if(stock.kind!=="etf"&&stock.valuationFlag==="undervalued"){
-  const badge=el("span","被低估","value-tag");badge.title="符合本站相對估值及已取得財報條件，並非內在價值估算或買入建議";
-  name.append(badge);
- }
- body.append(name,el("div",stock.market,"daily-sub"));
- const tags=el("div","","daily-parts");
- if(stock.kind==="etf"){
-  tags.append(el("span","成交量 "+showMetric(stock.volume," 股")),
-   el("span","行情 "+(stock.date||"待查")));
+ const card=el("article","","daily-item"),rank=el("div",String(stock.rank),"daily-rank");
+ const body=el("div"),right=el("div","","daily-score");
+ const etf=stock.kind==="etf";
+ body.append(el("div",(stock.name||"股票")+" "+stock.stock,"daily-name"),
+  el("div",stock.market,"daily-sub"));
+ if(etf){
+  const tags=el("div","","daily-parts");
+  tags.append(el("span","ETF 價量技術 "+numberText(stock.technicalScore)+" / 30"));
+  body.append(tags);
  }else{
-  tags.append(el("span","本益比 "+showMetric(screen.per," 倍")),
-   el("span","淨值比 "+showMetric(screen.pbr," 倍")),
-   el("span","殖利率 "+showMetric(screen.dividendYield,"%")));
+  const tags=el("div","","daily-parts");
+  for(const [label,key,max] of [["基本面","fundamental",40],["技術面","technical",30],["籌碼面","chips",30]]){
+   const part=stock.parts?.[key];
+   tags.append(el("span",label+" "+numberText(part?.earned)+" / "+max));
+  }
+  body.append(tags);
+  const figures=el("div","","daily-parts"),data=stock.financials||{};
+  if(typeof data.eps==="number")figures.append(el("span","EPS "+numberText(data.eps)+" 元"));
+  if(typeof data.operatingCashFlow==="number")figures.append(el("span",
+   "營業現金流 "+(data.operatingCashFlow>0?"正值":data.operatingCashFlow<0?"負值":"零")));
+  if(typeof data.debtRatioPct==="number")figures.append(el("span","負債比 "+numberText(data.debtRatioPct)+"%"));
+  if(figures.children.length)body.append(figures);
  }
- body.append(tags);
- if(stock.kind!=="etf"&&stock.financials){
-  const f=stock.financials;
-  const summary=el("p","財報："+(f.reportPeriod||"報告期未明")+
-   "｜EPS "+showMetric(f.eps," 元")+"｜營業現金流 "+(f.operatingCashFlow===null?"待查":f.operatingCashFlow>0?"為正":f.operatingCashFlow===0?"持平":"為負")+
-   "｜負債比 "+showMetric(f.debtRatioPct,"%"),"daily-reason");
-  body.append(summary);
- }
- if(stock.kind!=="etf")addChecks(body,stock.checks||[]);
- // A missing valuation flag is never replaced with an unsupported positive label.
- right.append(el("strong",showMetric(stock.close,stock.kind==="etf"?"":" 元")));
+ right.append(el("strong",etf?
+  "技術 "+numberText(stock.technicalScore)+" / 30":
+  "綜合 "+numberText(stock.score)+" / 100"));
+ right.append(el("small",showMetric(stock.close,etf?"":" 元")));
  const button=el("button","分析","daily-action");
  button.type="button";
  button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
@@ -365,19 +363,16 @@ function renderStockCard(stock){
 }
 async function refreshDaily(){
  const status=$("daily-status"),list=$("daily-list");
- list.replaceChildren();status.hidden=true;status.textContent="";
+ list.replaceChildren();status.hidden=false;status.textContent="正在核對已完成的全市場研究資料…";
  try{
   const response=await fetch("/api/observations");
   const d=await response.json();
   if(!response.ok)throw Error(d.reason||"資料服務暫不可用");
-  const rows=d.stocks||[];
-  if(!rows.length){status.textContent=d.reason||"暫無符合價格與成交條件的股票。";status.hidden=false;return;}
-  for(const [title,predicate] of [
-   ["上市股票",stock=>stock.kind!=="etf"&&stock.market==="上市"],
-   ["上櫃股票",stock=>stock.kind!=="etf"&&stock.market==="上櫃"],
-   ["ETF",stock=>stock.kind==="etf"]
-  ]){
-   const group=rows.filter(predicate);
+  const rows=(d.stocks||[]).filter(x=>typeof x.score==="number"&&x.coveredPoints===100).slice(0,5);
+  const etfs=(d.etfs||[]).filter(x=>x.technicalCoverage===30).slice(0,5);
+  status.textContent=d.reason||"";
+  status.hidden=!status.textContent;
+  for(const [title,group] of [["股票綜合分數前五名",rows],["ETF 技術觀察（獨立評估）",etfs]]){
    if(!group.length)continue;
    const section=el("section","","daily-group");
    section.append(el("h3",title,"daily-group-title"));
@@ -385,73 +380,12 @@ async function refreshDaily(){
    for(const stock of group)items.append(renderStockCard(stock));
    section.append(items);list.append(section);
   }
-  // Incomplete official feeds remain in API diagnostics; do not repeat long boilerplate above cards.
- }catch(error){status.textContent="每日觀察暫時無法更新："+error.message;status.hidden=false;}
-}
-// Full-market directory is paginated; identity is not a completed research score.
-let universePage=1,universeTotalPages=0,universeRequest=0;
-async function loadUniverse(){
- const request=++universeRequest,market=$("universe-market").value;
- const query=$("universe-query").value.trim();
- const status=$("universe-status"),list=$("universe-list");
- status.textContent="正在讀取全市場名冊…";
- $("universe-prev").disabled=true;$("universe-next").disabled=true;
- try{
-  const params=new URLSearchParams({market,q:query,page:String(universePage)});
-  const response=await fetch("/api/universe?"+params);
-  const data=await response.json();
-  if(!response.ok)throw Error(data.error||"資料暫不可用");
-  if(request!==universeRequest)return;
-  universeTotalPages=data.pages||0;
-  list.replaceChildren();
-  for(const stock of data.rows||[]){
-   const item=el("article","","universe-entry"),identity=el("div");
-   identity.append(el("div",stock.stock+"　"+(stock.name||"—"),"stock-id"),
-    el("div",stock.market+" · "+(stock.kind==="etf"?"ETF":"公司股票")+
-     " · "+(stock.quoteDate||"暫無報價日期"),"stock-info"));
-   const price=el("div",typeof stock.price==="number"?
-    numberText(stock.price)+(stock.kind==="etf"?"":" 元"):"價格待查","stock-score");
-   const score=el("div","","stock-score");
-   const completed=stock.status==="complete"&&typeof stock.score==="number";
-   score.append(el("div",completed?"綜合 "+numberText(stock.score)+" 分":
-    stock.kind==="etf"?"ETF 價量分析":"綜合分數待資料齊全"));
-   score.append(el("small",stock.kind==="etf"?
-    "技術資料 "+(stock.technicalCoverage??0)+" / 30":
-    stock.coverage===null?"尚未建立研究資料":"涵蓋 "+numberText(stock.coverage)+"%"));
-   const labels={complete:"分析完成",partial:"部分指標尚缺",pending:"排程待分析",
-    error:"資料取得失敗",stale:"歷史結果，待更新",analyzed:"ETF 已建立價量資料",
-    unscored:"尚無批次研究資料",no_quote:"暫無有效收盤價"};
-   const flag=el("div",labels[stock.status]||"待查","stock-status");
-   const button=el("button","分析","outline");
-   button.type="button";button.addEventListener("click",()=>{
-    $("ticker").value=stock.stock;$("search").requestSubmit();
-   });
-   item.append(identity,price,score,flag,button);list.append(item);
+  if(!rows.length&&!etfs.length){
+   status.hidden=false;
+   status.textContent=d.reason||"尚無資料完整且已核實的標的，暫不顯示前五名。";
   }
-  if(!list.children.length)list.append(el("p","目前沒有符合條件的標的。","muted"));
-  status.textContent=(data.configured?"已入庫名冊":"官方即時名冊（未啟用批次研究資料庫）")+
-   " · 共 "+numberText(data.total)+" 檔 · 每頁 "+data.pageSize+" 檔";
-  $("universe-page").textContent=universeTotalPages?
-   "第 "+universePage+" / "+universeTotalPages+" 頁":"無結果";
-  $("universe-prev").disabled=universePage<=1;
-  $("universe-next").disabled=universePage>=universeTotalPages;
- }catch(error){
-  if(request!==universeRequest)return;
-  list.replaceChildren();
-  status.textContent="全市場列表暫不可用："+error.message;
-  $("universe-page").textContent="—";
- }
+ }catch(error){status.textContent="前五名暫無法更新："+error.message;status.hidden=false;}
 }
-$("universe-form").addEventListener("submit",event=>{
- event.preventDefault();universePage=1;loadUniverse();
-});
-$("universe-market").addEventListener("change",()=>{universePage=1;loadUniverse()});
-$("universe-prev").addEventListener("click",()=>{
- if(universePage>1){universePage--;loadUniverse();}
-});
-$("universe-next").addEventListener("click",()=>{
- if(universePage<universeTotalPages){universePage++;loadUniverse();}
-});
 const hero=$("hero-image");hero.addEventListener("load",()=>{
  if(hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=true;}
 });hero.addEventListener("error",()=>{hero.hidden=true;$("hero-title").hidden=false;});
@@ -459,7 +393,6 @@ if(hero.complete&&hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=
 const requested=new URLSearchParams(location.search).get("stock");
 if(requested&&/^\d{4,6}$/.test(requested)){$("ticker").value=requested;$("search").requestSubmit();}
 refreshDaily();
-loadUniverse();
 fetch("/api/market-status").then(r=>r.json()).then(data=>{
  const label=$("market-sync-label");
  label.textContent=data.configured?
