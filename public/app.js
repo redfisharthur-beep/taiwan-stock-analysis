@@ -9,6 +9,8 @@ function groupCard(name,part){
  head.append(el("h3",name),el("span",part.earned+" / "+part.max+" 分 · 涵蓋 "+part.covered+"/"+part.max,"pill"));box.append(head);
  const highlights=part.items.filter(i=>i.score!==null).sort((a,b)=>b.score/b.max-a.score/a.max).slice(0,2);
  box.append(el("p",highlights.length?highlights.map(i=>i.name+"："+fmt(i.value)).join(" · "):"尚無可核對資料","score-highlights"));
+ const missing=part.items.filter(i=>i.score===null);
+ if(missing.length)box.append(el("p","待補："+missing.map(i=>i.name).join("、"),"muted"));
  const details=el("details","","score-detail"),summary=el("summary","查看計分明細");details.append(summary);
  for(const item of part.items){
   const row=el("div","","score-row"),label=el("div","","row-head");
@@ -37,7 +39,8 @@ function present(d){
   ["已評子項小計",d.score.observedPoints+" 分"],["資料涵蓋權重",d.score.coveredPoints+" / 100"]]){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
  }
- $("warnings").textContent=d.sourceWarnings.length?"部分來源暫未取得，詳見下方明細。":"";
+ $("warnings").textContent=d.sourceWarnings.length?"部分來源暫未取得，詳見「資料來源與更新說明」。":
+  d.score?.technicalMode==="raw"?"技術面採未還原日行情；除權息可能影響長期指標。":"";
  setupKline($("kline"),$("kline-tip"),d.candles||[]);
  const parts=$("parts");parts.replaceChildren();
  for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
@@ -82,6 +85,18 @@ function present(d){
   sourceRow(checked,name+"："+status,source.url);
  }
  const sources=$("sources");sources.replaceChildren();
+ const health=$("data-health");health.replaceChildren();
+ const mode=d.score?.technicalMode||"unavailable";
+ health.append(el("p","技術分析資料："+(mode==="adjusted"?"使用還原價":
+  mode==="raw"?"使用未還原日行情（除權息可能影響指標）":"歷史行情不足，尚未計分"),"muted"));
+ for(const dataset of d.datasetHealth||[]){
+  const status=dataset.status==="ok"?"已取得 "+dataset.records+" 筆":
+   dataset.status==="empty"?"本次查無資料":"取得失敗";
+  health.append(el("p",dataset.name+"："+
+   status+(dataset.latestDate?" · 最新 "+dataset.latestDate:"")+
+   (dataset.status==="ok"?"":" · "+dataset.message),"muted"));
+ }
+ if(d.missingMetrics?.length)health.append(el("p","尚待完成："+d.missingMetrics.map(x=>x.name).join("、"),"muted"));
  source(sources,"FinMind · "+d.finmind.date,"https://finmindtrade.com/");
  if(d.official)source(sources,d.official.source+" · "+(d.official.date||"日期未提供"),d.official.url);
  source(sources,"公開資訊觀測站（事件須核實才計分）",d.links.mops);
