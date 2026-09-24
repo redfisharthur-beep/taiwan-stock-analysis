@@ -101,3 +101,23 @@ export function reconcileBrokerHistory(broker,official,finmindPrices){
    "官方、FinMind 原始收盤與永豐完整日線同日收盤一致；不重複加分":
    "同日收盤出現差異；請檢查集合競價、分K完整度及來源欄位，官方價不被券商覆蓋"};
 }
+
+export function compareRawTechnicalIndicators(finmind,broker){
+ if(!finmind||!broker||!finmind.date||finmind.date!==broker.date)
+  return {state:"not_comparable",reason:"來源日期不同，或資料不足；不跨口徑核對指標"};
+ const tolerances={ma20:.08,ma60:.08,rsi:1.5,macd:.15,signal:.15,
+  volatility20:3,maxDrawdown60:2};
+ const results=Object.entries(tolerances).map(([indicator,tolerance])=>({
+  indicator,consistent:
+    typeof finmind[indicator]==="number"&&Number.isFinite(finmind[indicator])&&
+    typeof broker[indicator]==="number"&&Number.isFinite(broker[indicator])&&
+    Math.abs(finmind[indicator]-broker[indicator])<=tolerance
+ }));
+ const matched=results.filter(x=>x.consistent).length;
+ return {state:matched===results.length?"consistent":"differences",
+  checked:results.length,matched,
+  divergentMetrics:results.filter(x=>!x.consistent).map(x=>x.indicator),
+  reason:matched===results.length?
+   "同日未還原價的均線、RSI、MACD與歷史波動等指標在預設容許誤差內一致；不重複給分":
+   "同日未還原指標存在差異；可能涉及分K缺筆、收盤集合競價或股本調整，原評分維持不變"};
+}
