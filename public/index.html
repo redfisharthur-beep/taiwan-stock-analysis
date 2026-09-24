@@ -7,6 +7,27 @@
 <main>
 
 <section class="panel search"><form id="search" autocomplete="off"><input id="ticker" type="search" maxlength="30" placeholder="輸入股票代碼或文字" aria-label="搜尋股票代號或名稱" aria-autocomplete="list" aria-controls="suggestions" required><button id="submit" type="submit">搜尋</button></form><div id="suggestions" class="suggestions" role="listbox" hidden></div><p id="status" role="status" hidden></p></section>
+<section class="panel" id="universe-panel">
+ <div class="card-head"><h2>全市場分析</h2><span class="pill">上市・上櫃・ETF</span></div>
+ <p class="muted" id="universe-summary">全市場名冊與逐檔分析進度</p>
+ <form id="universe-form" class="universe-form" autocomplete="off">
+  <label for="universe-market">市場</label>
+  <select id="universe-market" aria-label="選擇股票市場">
+   <option value="all">全部標的</option><option value="上市">上市</option>
+   <option value="上櫃">上櫃</option><option value="股票">公司股票</option><option value="ETF">ETF</option>
+  </select>
+  <label for="universe-query">代號或名稱</label>
+  <input type="search" id="universe-query" maxlength="30" placeholder="搜尋全市場股票" />
+  <button type="submit">查詢</button>
+ </form>
+ <p id="universe-status" class="muted" role="status"></p>
+ <div id="universe-list" class="universe-list"></div>
+ <div class="universe-pager">
+  <button type="button" id="universe-prev" class="outline" disabled>上一頁</button>
+  <span id="universe-page" aria-live="polite"></span>
+  <button type="button" id="universe-next" class="outline" disabled>下一頁</button>
+ </div>
+</section>
 <section class="panel" id="daily-panel">
  <div class="card-head"><h2>每日觀察</h2></div>
  <p class="muted" id="daily-status" role="status" hidden></p>
