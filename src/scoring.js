@@ -184,7 +184,7 @@ export function scoreStock({
   part("波動幅度與60日最大回撤",5,riskScore,tech?
    {annualizedVolatility20Pct:tech.volatility20,maxDrawdown60Pct:tech.maxDrawdown60}:null,
    tech?.date,tech?technicalSource:null,
-   tech?"20日報酬波動年化與60日歷史峰值回撤；僅風險觀察，不預測未來":techNote)
+   tech?"20日報酬波動年化與60日歷史峰值回撤；僅風險觀察，不預測未來。"+techNote:techNote)
  ];
  const groups={fundamental,news,chips,technical};
  const parts=Object.fromEntries(Object.entries(groups).map(([key,items])=>
