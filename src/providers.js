@@ -19,7 +19,7 @@ export function normalize(prices,revenue,financials,investors,valuation=[],cashF
  institutional:investors.map(x=>({date:String(x.date??""),name:x.name,buy:n(x.buy),sell:n(x.sell)})).filter(x=>x.date&&x.buy!==null&&x.sell!==null),
  valuation:valuation.map(x=>({date:String(x.date??""),per:n(x.PER),pbr:n(x.PBR),dividendYield:n(x.dividend_yield)})).filter(x=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x.date)),
  cashFlows:cashFlows.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value),originName:String(x.origin_name??"").trim()||null})).filter(x=>x.date&&x.value!==null),
- margin:margin.map(x=>({date:String(x.date??""),financing:n(x.MarginPurchaseTodayBalance),previousFinancing:n(x.MarginPurchaseYesterdayBalance),short:n(x.ShortSaleTodayBalance),previousShort:n(x.ShortSaleYesterdayBalance)})).filter(x=>x.date&&x.financing!==null&&x.previousFinancing!==null&&x.short!==null&&x.previousShort!==null),
+ margin:margin.map(x=>({date:String(x.date??""),financing:n(x.MarginPurchaseTodayBalance),previousFinancing:n(x.MarginPurchaseYesterdayBalance),short:n(x.ShortSaleTodayBalance),previousShort:n(x.ShortSaleYesterdayBalance)})).filter(x=>x.date&&x.financing!==null&&x.previousFinancing!==null),
  adjusted:adjusted.map(x=>({date:String(x.date??""),close:n(x.close),volume:n(x.Trading_Volume)}))
    .filter(x=>x.date&&x.close>0).sort((a,b)=>a.date.localeCompare(b.date)),
  balance:balance.map(x=>({date:String(x.date??""),type:String(x.type??""),value:n(x.value),originName:String(x.origin_name??"").trim()||null}))
