@@ -1,3 +1,4 @@
+import {tickerPattern,isETFCandidate} from "./instruments.js";
 import {finmind,officialQuote,scanOfficialUniverse,rankUniverseCandidates,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
 import {getHoldingRows,concentration,archivedHoldingForStock} from "./holding.js";
@@ -5,14 +6,48 @@ import {researchNews} from "./news.js";
 import {assessUndervaluation} from "./value.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
-import {hasMarketDB,saveUniverse,getMarketSummary,searchSavedStocks,getSavedCompany,getSavedProfile,getDailySaved,claimNextCompany,saveResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
+import {hasMarketDB,saveUniverse,getMarketSummary,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
  "X-Content-Type-Options":"nosniff"}});
-const valid=s=>String(s||"").length>=4&&String(s||"").length<=6&&
- [...String(s)].every(ch=>ch>="0"&&ch<="9");
+const valid=s=>tickerPattern.test(String(s||""));
+/**
+ * ETF is a fund, not an issuer operating company. Do not apply company EPS,
+ * P/E, financial leverage or aggregate company investment scores to a fund.
+ */
+async function analyzeETF(stock,env,officialResult=null){
+ const verified=officialResult??await officialQuote(stock),official=verified.quote;
+ if(!official||official.kind!=="etf")return reply({error:"找不到可辨認的上市／上櫃 ETF 行情"},404);
+ const raw=env.FINMIND_TOKEN?await Promise.allSettled([
+  finmind(env,stock,"TaiwanStockPrice",410),
+  finmind(env,stock,"TaiwanStockPriceAdj",410)]):[];
+ const prices=normalize(raw[0]?.status==="fulfilled"?raw[0].value:[],[],[],[],[],[],[],
+  raw[1]?.status==="fulfilled"?raw[1].value:[]).prices;
+ const adjusted=normalize([],[],[],[],[],[],[],
+  raw[1]?.status==="fulfilled"?raw[1].value:[]).adjusted;
+ const sameDay=prices.find(p=>p.date===official.date);
+ const verification=sameDay?reconcile(official,prices):
+  {state:"單一官方來源",note:"官方 ETF 收盤行情可用；FinMind 同日歷史尚未取得"};
+ const usable=prices.length?prices:[{date:official.date,close:official.close,volume:null}];
+ const scored=scoreStock({prices:usable,adjusted});
+ // For funds, only the technically observed indicators are displayed;
+ // company-centric 100-point aggregate, EPS, debt and industry PR are excluded.
+ const technical=scored.parts.technical;
+ const score={score:null,observedPoints:technical.earned,coveredPoints:technical.covered,
+  parts:{technical},indicators:scored.indicators,technicalMode:scored.technicalMode};
+ const candles=prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>
+  typeof x==="number"&&Number.isFinite(x)&&x>0)).slice(-120);
+ const result={stock,kind:"etf",name:official.name,market:official.market,
+  asOf:new Date().toISOString(),official,finmind:{date:official.date,close:official.close},
+  verification,score,candles,financialInsights:null,holding:null,newsResearch:null,
+  industryComparison:{items:[],reason:"ETF 不適用公司同產業本益比比較"},
+  datasetHealth:[],sourceWarnings:raw.filter(x=>x.status==="rejected").map(x=>
+   "ETF 歷史行情來源："+String(x.reason?.message||x.reason)),
+  missingMetrics:[],links:{mops:"https://mops.twse.com.tw/"}};
+ return reply(result);
+}
 async function analyze(stock,env,override=null,shared=null){
  if(!env.FINMIND_TOKEN)return reply({error:"尚未在 Cloudflare 設定 FINMIND_TOKEN Secret。"},503);
  const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],
@@ -108,7 +143,7 @@ async function performScheduled(controller,env){
  if(!hasMarketDB(env))return;
  const db=env.MARKET_DB,cron=controller.cron||"";
  if(cron==="0 11 * * MON-FRI"){
-  const universe=await scanOfficialUniverse({priceCeiling:500});
+  const universe=await scanOfficialUniverse();
   if(universe.marketCount!==2||universe.markets.some(x=>!x.registryAvailable||x.date!==universe.marketDate))
    throw Error("兩市場名冊或日期不完整，保留先前已核實的資料庫行情");
   await saveUniverse(db,universe);
@@ -121,7 +156,7 @@ async function performScheduled(controller,env){
  }
  const summary=await getMarketSummary(db);
  if(summary.total===0){
-  const universe=await scanOfficialUniverse({priceCeiling:500});
+  const universe=await scanOfficialUniverse();
   if(universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable&&x.date===universe.marketDate))
    await saveUniverse(db,universe);
   return;
@@ -149,6 +184,11 @@ async function performScheduled(controller,env){
 // 若 FinMind 或官方資料缺漏，依真實初篩資料顯示，但絕不冒充已完成 100 分評估。
 function formatDailyStocks(candidates,investigated,marketDate){
  return candidates.map((row,i)=>{
+  if(row.kind==="etf"){
+   return {rank:i+1,stock:row.stock,kind:"etf",name:row.name,market:row.market,
+    date:row.date,close:row.close,volume:row.volume,turnover:row.turnover,
+    screening:{checks:[]},checks:[],valuationFlag:"not_applicable",detailVerified:false};
+  }
   const deep=investigated.get(row.stock)||null,validDeep=deep&&
    deep.verification?.state==="一致"&&deep.official?.date===marketDate&&
    deep.finmind?.date===marketDate;
@@ -164,7 +204,7 @@ function formatDailyStocks(candidates,investigated,marketDate){
   const checks=[...row.screening.checks,...checkNotes];
   const assessment=assessUndervaluation(row,validDeep?deep:null,marketDate);
   const allKnown=checks.every(c=>c.status!=="unknown"),passAll=allKnown&&checks.every(c=>c.status==="pass");
-  return {rank:i+1,stock:row.stock,name:row.name,market:row.market,date:row.date,
+  return {rank:i+1,stock:row.stock,kind:"stock",name:row.name,market:row.market,date:row.date,
    close:row.close,turnover:row.turnover,screening:row.screening,checks,
    passedAll:passAll,criteriaMet:checks.filter(x=>x.status==="pass").length,
    criteriaKnown:checks.filter(x=>x.status!=="unknown").length,
@@ -176,52 +216,32 @@ function formatDailyStocks(candidates,investigated,marketDate){
  });
 }
 
-async function computeStoredFive(env){
- const db=env.MARKET_DB;
- const saved=await getDailySaved(db,5);
- if(!saved.stocks.length)return null;
- const summary=await getMarketSummary(db),investigated=new Map();
- const candidates=rankUniverseCandidates(saved.stocks,"value",5);
- for(const row of saved.stocks){
-  if(!row.profile?.score||!row.profile?.metrics?.verified)continue;
-  investigated.set(row.stock,{score:row.profile.score,verification:{state:"一致"},
-   official:{date:row.date},finmind:{date:row.profileDate,close:row.close}});
- }
- const stocks=formatDailyStocks(candidates,investigated,saved.marketDate);
- return {ready:true,marketDate:saved.marketDate,asOf:new Date().toISOString(),
-  priceCeiling:500,scope:"full_market_stored_daily_prescreen",
-  universe:{total:summary.total,tradable:summary.eligible,
-   marketComplete:summary.markets.length===2&&
-   summary.markets.every(x=>x.date===saved.marketDate&&x.registryAvailable)},
-  stocks,candidateCount:stocks.length,analyzedCount:investigated.size,
-  sourceWarnings:summary.warnings||[],
-  researchProgress:{total:summary.total,finance:summary.finance,
-   technical:summary.technical,chips:summary.chips},
-  reason:"名單依已入庫的官方全市場行情與估值產生；歷史財報、技術與籌碼將依排程分批更新。"};
-}
 async function computeTopFive(env){
- const universe=await scanOfficialUniverse({priceCeiling:500});
- const candidates=rankUniverseCandidates(universe.stocks,"value",5);
- const marketComplete=universe.marketCount===universe.expectedMarketCount&&
+ const universe=await scanOfficialUniverse();
+ const listed=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="stock"&&x.market==="上市"),"value",5);
+ const otc=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="stock"&&x.market==="上櫃"),"value",5);
+ const etfs=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="etf"),"daily",5);
+ const candidates=[...listed,...otc,...etfs];
+ const marketComplete=universe.marketCount===2&&
   universe.markets.every(m=>m.date===universe.marketDate&&m.registryAvailable);
  const base={ready:candidates.length>0,marketDate:universe.marketDate,
-  asOf:new Date().toISOString(),priceCeiling:500,
+  asOf:new Date().toISOString(),priceCeiling:null,
   universe:{total:universe.universeCount,sameDate:universe.sameDateCount,
-   priced:universe.pricedCount,underCeiling:universe.affordableCount,
-   tradable:universe.tradableCount,overCeiling:universe.excludedOverCeiling,
-   missingPrice:universe.missingPriceCount,staleMarket:universe.staleMarketCount,
-   marketComplete,markets:universe.markets,scope:"官方當日行情可辨認的四位數上市／上櫃股票"},
+   priced:universe.pricedCount,tradable:universe.tradableCount,
+   marketComplete,markets:universe.markets,kindCounts:universe.kindCounts,
+   scope:"官方當日行情：上市股票、上櫃股票、可辨認的 ETF，所有價格"},
   markets:universe.markets,sourceWarnings:universe.warnings,
-  scope:"whole_official_daily_universe_prescreen",
+  scope:"whole_official_daily_universe_three_product_groups",
   analyzedCount:0,candidateCount:candidates.length,stocks:[]};
- if(!candidates.length)return {...base,reason:"官方當日行情尚未形成符合價格與成交條件的候選；沒有以舊日資料冒充今日資料。"};
+ if(!candidates.length)return {...base,reason:"上市、上櫃及 ETF 官方行情尚未形成可用觀察名單"};
  const shared={tdccRows:[],bulk:true,newsByMarket:{
-  "上市":{rows:[],error:"批次未逐檔核對重大訊息；請進入個股確認"},
-  "上櫃":{rows:[],error:"批次未逐檔核對重大訊息；請進入個股確認"}}};
+  "上市":{rows:[],error:"批次未逐檔核對重大訊息"},
+  "上櫃":{rows:[],error:"批次未逐檔核對重大訊息"}}};
  const investigated=new Map();
  if(env.FINMIND_TOKEN){
-  // 不同股票的個股資料缺漏不應阻止其餘名單顯示。
-  for(const row of candidates){
+  // Deep-dive only two companies per exchange to respect free Worker subrequest limits.
+  // All other listed, OTC and fund candidates remain visible using genuine official quotes.
+  for(const row of [...listed.slice(0,2),...otc.slice(0,2)]){
    try{
     const res=await analyze(row.stock,env,row,shared);
     if(res.ok)investigated.set(row.stock,await res.json());
@@ -230,9 +250,8 @@ async function computeTopFive(env){
  }
  const stocks=formatDailyStocks(candidates,investigated,universe.marketDate);
  return {...base,stocks,analyzedCount:investigated.size,
-  reason:marketComplete?
-   "已讀取兩市場公司名冊及當日行情，對符合價格與成交條件者逐檔初篩；僅名單內股票嘗試八項 FinMind 深入核對。":
-   "當日兩市場行情未同時齊備；目前名單僅根據可用市場初篩，不可視為完整市場比較。"};
+  reason:marketComplete?"上市、上櫃和 ETF 已依官方行情分組比較；深入分析按個股查詢取得":
+   "部分市場或 ETF 報價資料不完整，僅列出本次實際核實的證券"};
 }
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
@@ -240,14 +259,14 @@ export default {async fetch(request,env,ctx){
   rankingMode:"whole_market_daily_prescreen_scheduled_research",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.15.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.16.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
   try{
    let results=[];
-   if(hasMarketDB(env))results=await searchSavedStocks(env.MARKET_DB,q);
-   if(!results.length)results=await searchOfficialCompanies(q);
+   results=await searchOfficialCompanies(q);
+   if(!results.length&&hasMarketDB(env))results=await searchSavedStocks(env.MARKET_DB,q);
    return reply({results},200,300);
   }catch(error){return reply({results:[],error:"股票名冊暫不可用"},503)}
  }
@@ -258,15 +277,10 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.15.0");
+  const key=new Request(url.origin+"/api/top5?model=0.16.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
-   let body=null;
-   if(hasMarketDB(env)){
-    try{body=await computeStoredFive(env)}
-    catch(error){console.warn("market database not ready",String(error.message||error))}
-   }
-   if(!body)body=await computeTopFive(env);
+   const body=await computeTopFive(env);
    const response=reply(body,200,1800);
    if(body.ready)ctx.waitUntil(cache.put(key,response.clone()));
    return response;
@@ -276,21 +290,22 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.15.0"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.16.0"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
-   const res=await analyze(stock,env);
+   const res=isETFCandidate(stock)?
+    await analyzeETF(stock,env):await analyze(stock,env);
    if(res.ok){
     const payload=await res.clone().json();
     // 不依賴 D1：直接取同日官方全市場批次估值，顯示可驗證的同產業 PE/PB/殖利率 PR。
     // 其餘財報、技術、籌碼仍依個股真實資料分析，不能由估值表推測。
-    if(!hasMarketDB(env)){
+    if(payload.kind!=="etf"&&!hasMarketDB(env)){
      try{
-      const official=await scanOfficialUniverse({priceCeiling:500});
+      const official=await scanOfficialUniverse();
       payload.industryComparison=buildOfficialIndustryComparison(stock,official);
      }catch(error){payload.industryComparison={items:[],reason:"官方同業估值暫不可用，PR 待查"};}
     }
-    if(hasMarketDB(env)){
+    if(payload.kind!=="etf"&&hasMarketDB(env)){
      try{
       const company=await getSavedCompany(env.MARKET_DB,stock);
       if(company){
