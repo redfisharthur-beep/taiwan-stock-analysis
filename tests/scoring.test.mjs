@@ -70,3 +70,22 @@ test("financial quality is scored from real same-period operating cash/pretax an
  assert.equal(missingPretax.score,null);
  assert.equal(missingPretax.value.debtRatioPct,40);
 });
+
+test("verified good news adds points, bad news deducts points, and no news is neutral",()=>{
+ const prices=[{date:"2026-09-24",close:100,volume:1000}];
+ const research=event=>({events:event?[{...event,date:"2026-09-23",title:"已核實重大事件"}]:[]});
+ const positive=scoreStock({prices,newsResearch:research({kind:"order_won",verification:"independent_corrob"})});
+ const negative=scoreStock({prices,newsResearch:research({kind:"order_cancelled",verification:"official_only"})});
+ const neutral=scoreStock({prices,newsResearch:research(null)});
+ assert.equal(positive.newsDelta,5);
+ assert.equal(positive.parts.news.items[0].score,5);
+ assert.equal(negative.newsDelta,-2);
+ assert.equal(negative.parts.news.items[0].score,-2);
+ assert.equal(negative.parts.news.earned,-2);
+ assert.equal(neutral.newsDelta,0);
+ assert.equal(neutral.parts.news.items[0].score,0);
+ for(const result of [positive,negative,neutral]){
+  assert.equal(result.score,null,"news must not fill missing fundamental, technical or chip data");
+  assert.equal(result.coveredPoints,0);
+ }
+});
