@@ -43,8 +43,7 @@ export function summarizeFinancialStatements({financials=[],balance=[],cashFlows
   grossMargin:ratio(gross,revenue),operatingMargin:ratio(operating,revenue),
   netMargin:ratio(net,revenue),
   // A matching reporting date is required; a missing equity is not zero.
-  quarterlyRoe:marginDate&&incomeDate===balanceDate?
-   ratio(reportedNet,matchingEquity):null,
+  quarterlyRoe:marginDate?ratio(reportedNet,matchingEquity):null,
   currentRatio:ratio(currentAssets,currentLiabilities,1),
   debtRatio:ratio(liabilities,assets),operatingCashFlow:finite(cash)?cash:null,
   monthlyRevenueYoY:finite(latest?.revenue)&&finite(prior?.revenue)&&prior.revenue>0?
@@ -52,7 +51,6 @@ export function summarizeFinancialStatements({financials=[],balance=[],cashFlows
   missingReasons:{
    netMargin:!marginDate?"同一期營收與稅後淨利資料不足":null,
    quarterlyRoe:!marginDate?"同一期稅後淨利資料不足":
-    incomeDate!==balanceDate?"尚無與獲利同一期的資產負債表":
     !finite(matchingEquity)||matchingEquity<=0?"同一期權益資料不足":null
   },
   note:"淨利率採同一報表期間的營收與淨利；ROE僅在報表期間相同且權益為正時顯示，未證實單季口徑不推算成年化報酬。"};
