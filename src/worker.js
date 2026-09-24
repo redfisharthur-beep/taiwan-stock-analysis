@@ -182,12 +182,10 @@ async function performScheduled(controller,env){
   return;
  }
  try{
-  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,skipArchive:false,tdccRows:[],
-   // A stored weekly snapshot is shared across stocks; never re-download TDCC per company.
-   cachedHolding:held,newsByMarket:{
+  const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,newsByMarket:{
     "上市":{rows:[],error:"排程未批次核對新聞"},
     "上櫃":{rows:[],error:"排程未批次核對新聞"}},
-   persist:(clean,body)=>saveResearch(db,row,clean,body)});
+    persist:(clean,body)=>saveResearch(db,row,clean,body)});
   if(!response.ok)throw Error("深入分析 HTTP "+response.status);
  }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error));}
 }
