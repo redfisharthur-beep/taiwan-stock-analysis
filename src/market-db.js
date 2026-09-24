@@ -98,6 +98,7 @@ export async function saveResearch(db,company,clean,body){
  const stats={marketDate:date,verified:body.verification?.state==="一致"&&body.official?.date===date,
   financialInsights:body.financialInsights||null,technicalDate:s.indicators?.date||null,
   incomeDate:body.financialInsights?.incomeDate||null,
+  balanceDate:body.financialInsights?.balanceDate||null,
   grossMargin:body.financialInsights?.grossMargin??null,
   operatingMargin:body.financialInsights?.operatingMargin??null,
   netMargin:body.financialInsights?.netMargin??null,
