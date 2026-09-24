@@ -1,4 +1,4 @@
-# 台股研究室 · Cloudflare Workers v0.2
+# 台股研究室 · Cloudflare Workers v0.3
 
 跨手機、平板及電腦的響應式台股研究介面，使用 Cloudflare Workers 託管網站與資料 API。**此版本為可部署的單檔查詢與資料核對 MVP，不是完成的全市場評分或即時交易系統。**
 
