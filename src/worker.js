@@ -321,6 +321,7 @@ export default {async fetch(request,env,ctx){
         const currentDelta=payload.score.newsDelta??0;
         const archiveScore=stored.score;
         payload.score={...archiveScore,newsDelta:currentDelta,
+         parts:{...archiveScore.parts,news:payload.score.parts?.news||archiveScore.parts.news},
          score:Math.max(0,Math.min(100,
           Math.round((archiveScore.baseScore+currentDelta)*100)/100)),
          scoreSource:"同交易日已核實研究快照"};
