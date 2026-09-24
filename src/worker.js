@@ -165,7 +165,10 @@ async function analyze(stock,env,override=null,shared=null){
 // D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
 // trigger public GET writes or pretend to contain a full-market financial history.
 async function performScheduled(controller,env){
- if(!hasMarketDB(env))return;
+ if(!hasMarketDB(env)){
+  console.error("[market-sync] no MARKET_DB binding in scheduled execution");
+  return;
+ }
  const db=env.MARKET_DB,cron=controller.cron||"";
  if(cron==="0 11 * * MON-FRI"){
   const universe=await scanOfficialUniverse();
@@ -182,8 +185,17 @@ async function performScheduled(controller,env){
  const summary=await getMarketSummary(db);
  if(summary.total===0){
   const universe=await scanOfficialUniverse();
-  if(universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable))
-   await saveUniverse(db,universe);
+  if(universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable)){
+   const saved=await saveUniverse(db,universe);
+   console.info("[market-sync] universe saved",JSON.stringify({
+    saved,marketDate:universe.marketDate,markets:universe.markets
+   }));
+  }else{
+   console.warn("[market-sync] universe skipped: both exchange registries required",JSON.stringify({
+    marketCount:universe.marketCount,marketDate:universe.marketDate,
+    markets:universe.markets,warnings:universe.warnings
+   }));
+  }
   return;
  }
  if(!env.FINMIND_TOKEN)return;
