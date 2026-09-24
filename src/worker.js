@@ -212,7 +212,7 @@ async function computeDailyObservations(env){
  const [summary,top]=await Promise.all([
   getMarketSummary(env.MARKET_DB),getVerifiedTopFive(env.MARKET_DB)
  ]);
- const isComplete=summary.total>0&&summary.profiles===summary.total&&
+ const isComplete=summary.eligible>0&&summary.currentProfiles>=summary.eligible&&
   summary.markets?.length===2&&summary.markets.every(m=>m.registryAvailable);
  return {ready:top.stocks.length>0||top.etfs.length>0,
   marketDate:summary.marketDate,asOf:new Date().toISOString(),
