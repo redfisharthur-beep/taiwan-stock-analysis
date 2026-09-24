@@ -76,3 +76,32 @@ test("default universe has no price cap and includes listed, OTC and multi-chara
  assert.equal(full.priceCeiling,undefined);
  assert.equal(full.stocks.filter(x=>x.kind==="etf").every(x=>x.screen===null),true);
 });
+
+test("OTC quote fallback uses only the alternate official OTC source",async()=>{
+ const hits=[];
+ const full=await scanOfficialUniverse({fetchJSON:async url=>{
+  hits.push(url);
+  if(url.includes("tpex_mainboard_daily_close_quotes"))throw Error("upstream 403");
+  if(url.includes("tpex_mainboard_quotes"))return otc;
+  return mock(url);
+ }});
+ assert.equal(full.marketCount,2);
+ assert.ok(hits.some(x=>x.includes("tpex_mainboard_quotes")));
+ assert.ok(full.allStocks.some(x=>x.stock==="2001"&&x.market==="上櫃"&&
+  x.url.endsWith("/tpex_mainboard_quotes")));
+});
+test("a wholly blocked OTC source exposes an honest one-market snapshot instead of zero stocks",async()=>{
+ const full=await scanOfficialUniverse({fetchJSON:async url=>{
+  if(url.includes("tpex_mainboard_daily_close_quotes")||
+     url.includes("tpex_mainboard_quotes")||
+     url.includes("mopsfin_t187ap03_O")||
+     url.includes("tpex_mainboard_peratio_analysis"))
+    throw Error("TPEx upstream 403");
+  return mock(url);
+ }});
+ assert.equal(full.marketCount,1);
+ assert.deepEqual(full.markets.map(x=>x.market),["上市"]);
+ assert.ok(full.allStocks.some(x=>x.stock==="1001"&&x.market==="上市"));
+ assert.equal(full.allStocks.some(x=>x.stock==="2001"),false);
+ assert.ok(full.warnings.some(x=>x.includes("TPEx")&&x.includes("403")));
+});
