@@ -139,10 +139,18 @@ async function refreshDaily(){
    button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
    right.append(button);card.append(rank,body,right);list.append(card);
   }
-  const v=d.value||{stocks:[]},target=$("value-list");
-  target.replaceChildren();$("value-date").textContent=d.marketDate||"尚無資料";
+  let v={stocks:[],eligibleCount:0,candidateCount:0},valueMarketDate=d.marketDate;
+  try{
+    const excluded=(d.stocks||[]).map(x=>x.stock).slice(0,5).join(",");
+    const reply=await fetch("/api/value5?exclude="+encodeURIComponent(excluded));
+    const result=await reply.json();
+    if(!reply.ok)throw Error(result.reason||"價值觀察資料暫時不可用");
+    v=result.value||v;valueMarketDate=result.marketDate||valueMarketDate;
+  }catch(error){$("value-status").textContent="價值觀察資料暫不可用："+error.message;}
+  const target=$("value-list");
+  target.replaceChildren();$("value-date").textContent=valueMarketDate||"尚無資料";
   $("value-status").textContent=v.stocks?.length?
-    "本次候選 "+(d.candidateCount||0)+" 檔 · 符合初步估值條件 "+v.eligibleCount+
+    "價值候選 "+(v.candidateCount||0)+" 檔 · 符合初步估值條件 "+v.eligibleCount+
     " 檔。不是全市場估算的內在價值排名。":
     "本次候選股中，尚無同時通過估值、獲利及現金流檢查的五檔。";
   for(const row of (v.stocks||[])){
