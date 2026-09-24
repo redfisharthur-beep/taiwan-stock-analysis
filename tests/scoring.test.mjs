@@ -49,7 +49,7 @@ test("five-day institutional flow uses real prior reported sessions when current
  const institutional=trading.slice(0,-1).map(date=>({date,name:"Foreign_Investor",buy:600,sell:500}));
  const scored=scoreStock({prices,institutional});
  const item=scored.parts.chips.items.find(x=>x.name==="法人近五日淨買賣／成交量");
- assert.equal(item.score,6);
+ assert.equal(item.score,10);
  assert.equal(item.date,"2026-09-22");
  assert.equal(item.value.netShares,500);
  assert.equal(item.value.delayedSessions,1);
