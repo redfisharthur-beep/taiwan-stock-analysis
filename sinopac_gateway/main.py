@@ -50,7 +50,7 @@ def _get_client():
 @app.get("/health")
 def health(response: Response):
     response.headers["Cache-Control"] = "no-store"
-    return {"ok": True, "service": "read_only_sinopac_gateway", "version": "0.1.0",
+    return {"ok": True, "service": "read_only_sinopac_gateway", "version": "0.2.0",
             "credentialsConfigured": bool(os.environ.get("SJ_API_KEY")) and bool(os.environ.get("SJ_SEC_KEY")),
             "bridgeTokenConfigured": len(os.environ.get("SJ_BRIDGE_TOKEN", "")) >= 32}
 
