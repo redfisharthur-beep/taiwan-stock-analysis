@@ -61,7 +61,7 @@ test("stock research shows observed points separately from coverage and splits E
  assert.match(js,/綜合分數/);
  assert.match(js,/尚無完整資料/);
  assert.match(js,/const summaryLines=item=>/);
- assert.match(js,/item\.name\+"："+key\+" "/);
+ assert.ok(js.includes('item.name+"："+key+" "'));
  assert.match(js,/score-highlight-line/);
  assert.match(css,/\.score-highlight-line\{/);
  assert.doesNotMatch(js,/box\.append\(el\("span",label\),el\("strong",display\),\s*el\("small",note\)\)/);
