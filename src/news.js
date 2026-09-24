@@ -102,6 +102,7 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null){
    articles=payload.articles;
   }catch(e){feedError="授權新聞來源暫無法取得："+String(e.message||e)}
  }
+ articles=articles.filter(a=>typeof a.publishedAt==="string"&&a.publishedAt<=marketDate);
  const events=corroborate(official.events,articles,stock);
  const result=scoreNews(events);
  if(result.status==="unverified"&&official.events.length===0&&articles.length){
