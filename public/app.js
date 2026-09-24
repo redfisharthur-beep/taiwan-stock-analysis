@@ -126,95 +126,72 @@ function present(d){
 $("search").addEventListener("submit",async e=>{
  e.preventDefault();const stock=$("ticker").value.trim();
  if(!/^\d{4,6}$/.test(stock)){$("status").textContent="請輸入正確股票代號。";return;}
- const btn=$("submit");btn.disabled=true;$("status").textContent="正在整理最新資料…";$("result").hidden=true;
+ const btn=$("submit");btn.disabled=true;$("status").hidden=false;$("status").textContent="正在整理最新資料…";$("result").hidden=true;
  try{
   const response=await fetch("/api/analyze?stock="+encodeURIComponent(stock));
   const data=await response.json();
   if(!response.ok)throw Error(data.error||"資料取得失敗");
-  present(data);$("status").textContent="查詢完成，請查看資料日期與涵蓋度。";
+  present(data);$("status").textContent="";$("status").hidden=true;
   $("result").scrollIntoView({behavior:"smooth",block:"start"});
  }catch(error){$("status").textContent="查詢未完成："+error.message;}finally{btn.disabled=false;}
 });
 const showNumber=n=>Number.isFinite(n)?n.toLocaleString("zh-TW"):"—";
-const showMetric=(n,unit="")=>typeof n==="number"&&Number.isFinite(n)?showNumber(n)+unit:"尚無資料";
-function showUniverse(data){
- const target=$("market-coverage"),u=data?.universe;
- if(!u){target.textContent="尚未取得兩市場掃描統計。";target.classList.add("warn");return;}
- target.classList.toggle("warn",!u.marketComplete);
- target.textContent="官方行情涵蓋 "+showNumber(u.total)+" 檔四位數股票｜同日有效價格 "+showNumber(u.priced)+
-  " 檔｜低於 500 元且有成交 "+showNumber(u.tradable)+" 檔｜500 元以上排除 "+showNumber(u.overCeiling)+
-  " 檔。"+(u.marketComplete?"上市、上櫃已取得同一交易日資料。":"兩市場行情或公司名冊尚未完整；名單不可視為完整市場比較。")+
-  (u.missingPrice?" 無有效收盤價 "+showNumber(u.missingPrice)+" 檔不參與排序。":"");
-}
+const showMetric=(n,unit="")=>typeof n==="number"&&Number.isFinite(n)?showNumber(n)+unit:"待查";
 function addChecks(parent,checks=[]){
  const list=el("div","","daily-checks");
  for(const check of checks){
   const state=["pass","fail","unknown"].includes(check.status)?check.status:"unknown";
-  const icon=state==="pass"?"✓":state==="fail"?"!":"?";
-  const text=state==="pass"?"符合":state==="fail"?"未達":"待查";
-  list.append(el("span",icon+" "+check.label+"："+text,"daily-check "+state));
+  const word=state==="pass"?"符合":state==="fail"?"未達":"待查";
+  list.append(el("span",check.label+" · "+word,"daily-check "+state));
  }
  parent.append(list);
 }
-function renderStockCard(stock,mode){
+function renderStockCard(stock){
  const card=el("article","","daily-item"),rank=el("div",String(stock.rank),"daily-rank"),
   body=el("div"),right=el("div","","daily-score"),screen=stock.screening||{};
- body.append(el("div",(stock.name||"股票")+" "+stock.stock,"daily-name"),
-  el("div",stock.market+" · "+stock.date+" 收盤 "+showMetric(stock.close," 元"),"daily-sub"));
+ const name=el("div","","daily-name");
+ name.append(document.createTextNode((stock.name||"股票")+" "+stock.stock));
+ if(stock.valuationFlag==="undervalued"){
+  const badge=el("span","被低估","value-tag");badge.title="符合本站相對估值及已取得財報條件，並非內在價值估算或買入建議";
+  name.append(badge);
+ }
+ body.append(name,el("div",stock.market+" · 最近收盤 "+showMetric(stock.close," 元"),"daily-sub"));
  const tags=el("div","","daily-parts");
  tags.append(el("span","本益比 "+showMetric(screen.per," 倍")),
   el("span","淨值比 "+showMetric(screen.pbr," 倍")),
   el("span","殖利率 "+showMetric(screen.dividendYield,"%")));
- if(mode==="daily")tags.append(el("span",screen.liquidityLabel||"成交金額待核對"));
- body.append(tags,
-  el("p",mode==="value"?
-   stock.passedAll?"已取得的估值與財務條件通過設定門檻，仍須留意未評項目。":
-   "從可取得的全市場估值資料選出供研究；請看哪些條件未達標、哪些資料尚待確認。":
-   "參考官方成交、估值等指標進行初篩，不代表股價一定上漲。","daily-reason"));
+ body.append(tags);
+ if(stock.financials){
+  const f=stock.financials;
+  const summary=el("p","財報："+(f.reportPeriod||"報告期未明")+
+   "｜EPS "+showMetric(f.eps," 元")+"｜營業現金流 "+showMetric(f.operatingCashFlow)+
+   "｜負債比 "+showMetric(f.debtRatioPct,"%"),"daily-reason");
+  body.append(summary);
+ }else body.append(el("p","財報尚待核對，不能只憑低本益比判斷價值。","daily-reason"));
  addChecks(body,stock.checks||[]);
- right.append(el("strong",mode==="value"?
-  (stock.passedAll?"初步門檻符合":"初步條件 "+stock.criteriaMet+"/"+(stock.checks?.length||0)):
-  "收盤 "+showMetric(stock.close," 元")),
-  el("small",stock.detailVerified?
-   "深入分析已取得 "+stock.coveredPoints+"/100 權重資料":
-   "深入分析尚未核實完整；請查看個股資料"));
- const button=el("button","查看個股分析 →","daily-action");
+ if(stock.valuationFlag!=="undervalued"&&stock.valuationNote)
+  body.append(el("p",stock.valuationNote,"daily-reason"));
+ right.append(el("strong",showMetric(stock.close," 元")),
+  el("small",stock.detailVerified?"資料已交叉核對":"個股詳細資料待補"));
+ const button=el("button","查看分析 →","daily-action");
  button.type="button";
  button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
  right.append(button);card.append(rank,body,right);return card;
 }
-async function refreshValue(){
- const status=$("value-status"),target=$("value-list");target.replaceChildren();
- try{
-  const response=await fetch("/api/value5"),d=await response.json();
-  if(!response.ok)throw Error(d.reason||"官方估值資料暫不可用");
-  $("value-date").textContent=d.marketDate||"尚無日期";
-  const a=d.stocks||[];
-  status.textContent=a.length?
-   "已從官方當日可用的 "+showNumber(d.universe?.tradable||0)+" 檔價格合格且有成交股票進行估值初篩，列出 "+
-   a.length+" 檔供研究；其中 "+(d.strictCount||0)+" 檔通過卡片列出的全部初步條件。"+
-   " 只有名單中的股票會嘗試取得深入分析資料。":
-   d.reason||"尚無可核對的價值觀察名單。";
-  for(const stock of a)target.append(renderStockCard(stock,"value"));
- }catch(error){$("value-date").textContent="暫無資料";status.textContent="價值名單暫不可用："+error.message;}
-}
 async function refreshDaily(){
- const status=$("daily-status"),list=$("daily-list"),stamp=$("daily-date");
- list.replaceChildren();
+ const status=$("daily-status"),list=$("daily-list");
+ list.replaceChildren();status.hidden=true;status.textContent="";
  try{
-  const response=await fetch("/api/top5"),d=await response.json();
+  const response=await fetch("/api/top5");
+  const d=await response.json();
   if(!response.ok)throw Error(d.reason||"資料服務暫不可用");
-  stamp.textContent=d.marketDate||"尚無日期";showUniverse(d);
   const rows=d.stocks||[];
-  status.textContent=rows.length?
-   "已從 "+showNumber(d.universe?.tradable||0)+" 檔價格低於 500 元且有成交的股票初篩，列出 "+
-   rows.length+" 檔；其中 "+(d.analyzedCount||0)+" 檔取得深入分析回應。"+
-   " 這不是全市場每一檔的完整財報與技術排名。":
-   d.reason||"目前無法建立每日名單。";
-  for(const stock of rows)list.append(renderStockCard(stock,"daily"));
- }catch(error){stamp.textContent="暫無資料";status.textContent="每日名單暫不可用："+error.message;showUniverse(null);}
- // 兩組都使用完整兩市場官方初篩，價值組不應因每日組已入選而被排除。
- await refreshValue();
+  if(!rows.length){status.textContent=d.reason||"暫無符合價格與成交條件的股票。";status.hidden=false;return;}
+  for(const stock of rows)list.append(renderStockCard(stock));
+  if(!d.universe?.marketComplete){
+   status.textContent="部分市場或公司名冊資料尚未齊備；請以個股來源為準。";status.hidden=false;
+  }
+ }catch(error){status.textContent="每日觀察暫時無法更新："+error.message;status.hidden=false;}
 }
 const hero=$("hero-image");hero.addEventListener("load",()=>{
  if(hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=true;}
