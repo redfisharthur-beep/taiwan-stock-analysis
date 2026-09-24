@@ -53,13 +53,13 @@ async function analyze(stock,env,override=null,shared=null){
 }
 // 免 D1：每次快取到期直接由官方最新行情選出流動性候選，再逐檔核對 FinMind。
 // 樣本範圍 10 檔，不能宣稱為全台股綜合得分最高前五。
-async function computeTopFive(env){
+async function computeTopFive(env,mode="score",exclude=[]){
  if(!env.FINMIND_TOKEN)return {ready:false,reason:"尚未設定 FINMIND_TOKEN Secret；未產生榜單。",
   marketDate:null,stocks:[]};
  // Free Workers: 50 external subrequests/invocation. Six stocks × 7 FinMind +
  // two official quotes + two MOPS lists = 46 before redirects; no expensive TDCC bulk CSV.
  const perMarket=env.FULL_SCREENING_ENABLED==="true"?5:3;
- const official=await officialCandidates(perMarket);
+ const official=await officialCandidates(perMarket,{mode:mode==="value"?"value":"liquid",exclude});
  if(!official.candidates.length)return {ready:false,reason:"尚未取得帶有有效交易日期的官方行情，無法產生今日觀察名單。",
   marketDate:official.marketDate,sourceWarnings:official.warnings,stocks:[]};
  const selected=official.candidates;
@@ -97,7 +97,9 @@ async function computeTopFive(env){
   sourceWarnings:[...official.warnings,...failed,
     ...(perMarket===3?["目前為免費額度模式：首頁不批次取得 TDCC 與授權新聞；點開個股才查證。"]:[])],
   markets:official.markets,
-  reason:ranking.stocks.length?
+  reason:mode==="value"?
+   "僅比較官方本益比／淨值比預篩的 "+selected.length+" 檔候選股票，並檢查 EPS 與現金流；不是內在價值排名。":
+   ranking.stocks.length?
    "僅比較官方依成交金額預篩的 "+selected.length+" 檔候選股票，非全市場完整四面向最高分前五。":
    "此次候選股尚未取得足夠的同交易日、同評分口徑資料，未產生五檔名單。"};
 }
@@ -115,6 +117,20 @@ export default {async fetch(request,env,ctx){
    return response;
   }catch(err){return reply({ready:false,stocks:[],reason:"官方資料或分析 API 連線異常；未產生推薦名單。",
    detail:String(err.message||err)},503)}
+ }
+ if(url.pathname==="/api/value5"){
+  const exclusion=(url.searchParams.get("exclude")||"").split(",").filter(v=>
+   v.length===4&&[...v].every(ch=>ch>="0"&&ch<="9")).slice(0,5);
+  const exclude=[...new Set(exclusion)].sort();
+  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.7"),
+   cache=caches.default;
+  const hit=await cache.match(key);if(hit)return hit;
+  try{
+   const body=await computeTopFive(env,"value",exclude),response=reply(body,200,1800);
+   if(body.ready)ctx.waitUntil(cache.put(key,response.clone()));
+   return response;
+  }catch(err){return reply({ready:false,value:{stocks:[]},reason:"價值觀察資料暫無法取得。",
+    detail:String(err.message||err)},503)}
  }
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
