@@ -52,10 +52,6 @@ const metricDetails=item=>{
    (v.netShares>0?"近五個已公布交易日淨買超":v.netShares<0?"近五個已公布交易日淨賣超":"近五日買賣持平"):"五個已公布交易日合計"," 股");
   add("同期成交量",v?.totalShares,"五個已公布交易日合計"," 股");
   add("法人買賣超占比",v?.ratioPct,"淨買賣超 ÷ 同期成交量","%");break;
- case "400張以上持股三週趨勢":
-  add("大戶持股占比",v?.holderPct,"最近一週400張以上持股","%");
-  add("近三週變化",v?.changeTwoWeeksPct,typeof v?.changeTwoWeeksPct==="number"?
-   (v.changeTwoWeeksPct>0?"大戶持股占比增加":v.changeTwoWeeksPct<0?"大戶持股占比減少":"大戶持股占比持平"):"與兩週前比較"," 個百分點");break;
  case "融資餘額變化":
   add("",v,typeof v==="number"?(v>0?"融資餘額增加":v<0?"融資餘額減少":"融資餘額持平"):"單日融資餘額變化");break;
  case "消息事件調整":
@@ -66,7 +62,7 @@ const metricDetails=item=>{
  }
  return rows;
 };
-function groupCard(name,part,holdingStatus=null){
+function groupCard(name,part){
  const box=el("section","","panel score-card"),head=el("div","","card-head");
  const isNews=name==="消息面";
  const delta=part.items.find(i=>i.name==="消息事件調整")?.score??0;
@@ -87,9 +83,7 @@ function groupCard(name,part,holdingStatus=null){
    row.append(metric);
   }
   if(item.score===null){
-   const reason=item.name==="400張以上持股三週趨勢"?
-    (holdingStatus?.reason||"需連續三週集保持股資料"):
-    item.name==="量價"?"近20日成交量不足":
+   const reason=    item.name==="量價"?"近20日成交量不足":
     item.name==="EPS 與去年同季"?"需本季及去年同季 EPS":
     item.name==="估值／本益比"?"需足夠的歷史本益比":
     item.name==="獲利品質與負債"?"需同一期現金流、稅前淨利與負債":
@@ -189,7 +183,7 @@ function present(d){
  if(isFund){
   parts.append(groupCard("ETF 價量技術",d.score.parts.technical));
  }else for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
-  parts.append(groupCard(label,d.score.parts[key],d.holdingStatus));
+  parts.append(groupCard(label,d.score.parts[key]));
  const news=d.newsResearch||{status:"unverified",events:[],checked:[]};
  $("news-status").textContent=news.status==="corroborated_event"?
   "官方公告＋獨立媒體核對："+(news.impact||"影響待觀察")+"（非股價預測）":
@@ -234,8 +228,6 @@ function present(d){
  }
  const sources=$("sources");sources.replaceChildren();
  const health=$("data-health");health.replaceChildren();
- if(d.holdingStatus&&d.holdingStatus.code!=="verified")
-  health.append(el("p","集保持股："+d.holdingStatus.reason,"muted"));
  const broker=d.brokerVerification||{state:"not_configured"};
  const brokerLabels={matched:"永豐完整日線與官方／FinMind 同日收盤一致（不重複給分）",
   mismatch:"永豐完整日線與其他來源同日價格有差異，保留官方及FinMind原始分數",
