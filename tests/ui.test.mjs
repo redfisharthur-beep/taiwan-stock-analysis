@@ -65,7 +65,7 @@ test("stock research shows observed points separately from coverage and splits E
  assert.match(js,/score-metric/);
  assert.match(css,/\.score-metric\{/);
  assert.doesNotMatch(js,/box\.append\(el\("span",label\),el\("strong",display\),\s*el\("small",note\)\)/);
- assert.match(js,/400張以上持股三週趨勢/);
+ assert.doesNotMatch(js,/400張以上持股三週趨勢/);
  assert.match(js,/近期重點新聞/);
  assert.match(js,/source\.status==="other_market"\|\|source\.status==="not_connected"/);
 });
