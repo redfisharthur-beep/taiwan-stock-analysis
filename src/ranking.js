@@ -30,7 +30,7 @@ export function selectDailyLeaders(records,{marketDate,universeSize=null,univers
 export async function readTopFive(db){
  if(!db)return {ready:false,reason:"尚未綁定 Cloudflare D1 資料庫（DB），無法保存每日榜單。",stocks:[]};
  try{
- const query=await db.prepare("SELECT payload FROM stock_snapshots ORDER BY updated_at DESC LIMIT 5000").all();
+ const query=await db.prepare("SELECT payload FROM stock_snapshots WHERE market_date=(SELECT MAX(market_date) FROM stock_snapshots) ORDER BY updated_at DESC LIMIT 1500").all();
  const records=(query.results||[]).map(r=>{try{return JSON.parse(r.payload)}catch{return null}}).filter(Boolean);
  const marketDate=records.map(x=>x?.verification?.state==="一致"?x.finmind.date:"").sort().at(-1)||null;
  const data=selectDailyLeaders(records,{marketDate});
@@ -40,6 +40,6 @@ export async function readTopFive(db){
 export async function saveSnapshot(db,record){
  if(!db||record.verification?.state!=="一致"||!record.finmind?.date||record.finmind.date!==record.official?.date)return false;
  await db.prepare("INSERT INTO stock_snapshots (stock,market_date,updated_at,payload) VALUES (?,?,?,?) ON CONFLICT(stock) DO UPDATE SET market_date=excluded.market_date,updated_at=excluded.updated_at,payload=excluded.payload")
-  .bind(record.stock,record.finmind.date,new Date().toISOString(),JSON.stringify(record)).run();
+  .bind(record.stock,record.finmind.date,new Date().toISOString(),JSON.stringify({...record,candles:[]})).run();
  return true;
 }
