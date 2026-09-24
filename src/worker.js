@@ -213,6 +213,13 @@ async function computeDailyObservations(env){
   getMarketSummary(env.MARKET_DB),getVerifiedTopFive(env.MARKET_DB)
  ]);
  const stocks=mergeVerifiedResearch(groups);
+ const attempt=summary.lastUniverseAttempt;
+ const emptyReason=!attempt?"目前名冊為空，尚無同步執行紀錄；請確認最新 Worker 已部署且五分鐘排程已啟用。":
+  attempt.status==="write_failed"?"官方名冊已取得，但 D1 寫入失敗："+(attempt.lastError||"請檢查資料庫權限"):
+  attempt.status==="skipped_missing_official_quotes"?"官方兩市場行情尚未同時取得："+
+   ((attempt.warnings||[]).join("；")||"請查看 /api/market-status 中最近一次同步紀錄"):
+  attempt.status==="scan_failed"?"名冊同步失敗："+(attempt.lastError||"官方來源暫不可用"):
+  "最近一次同步狀態："+attempt.status+"；請查看 /api/market-status。";
  const allComparable=summary.eligible>0&&
   summary.currentProfiles>=summary.eligible&&
   summary.fullCoverage>=summary.eligibleCompanies&&
@@ -223,7 +230,7 @@ async function computeDailyObservations(env){
   universe:{total:summary.total,eligible:summary.eligible,
    profiles:summary.currentProfiles,fullCoverage:summary.fullCoverage,
    fullETFTechnical:summary.fullETFTechnical,scannedAll:allComparable},
-  reason:!summary.total?"上市與上櫃名冊尚未完成同步。":
+  reason:!summary.total?emptyReason:
    !allComparable?"僅列已核實且適用資料完整的標的；仍有股票或 ETF 尚未評分，因此不是全市場最終前五名。":
    stocks.length<5?"目前資料符合完整評分條件的標的不足五檔。":
    "股票為公司40／30／30總分，ETF為獨立技術30分折算百分比；兩類評分依據不同。"};
