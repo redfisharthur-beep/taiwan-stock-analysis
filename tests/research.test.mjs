@@ -1,7 +1,7 @@
 import test from "node:test";import assert from "node:assert/strict";
 import {concentration} from "../src/holding.js";
 import {eventKind,parseDisclosures,corroborate,scoreNews,researchNews} from "../src/news.js";
-import {valueWatchlist} from "../src/value.js";
+import {valueWatchlist,assessUndervaluation} from "../src/value.js";
 function weekly(date,largePct=10){
  return Array.from({length:17},(_,i)=>({"資料日期":date,"證券代號":"2330","持股分級":String(i+1),
  "股數":String(i+1===17?100000000:2000+i*100),"占集保庫存數比例%":String(i>=11&&i<=14?largePct:1)}));
@@ -59,4 +59,28 @@ test("high debt or missing historical valuation excludes value-trap candidate",(
 test("single TDCC week shows share but cannot earn concentration-trend score",()=>{
  const one=concentration(weekly("20260918",10),"2330","2026-09-24");
  assert.equal(one.share,40);assert.equal(one.trend,null);
+});
+
+test("daily watch only marks undervalued when valuation, relative PER and current financials are verified",()=>{
+ const row={stock:"1001",screening:{per:12,pbr:1.3,dividendYield:4}};
+ const detail=make("1001",12,1.3,4);
+ const match=assessUndervaluation(row,detail,"2026-09-24");
+ assert.equal(match.valuationFlag,"undervalued");
+ assert.equal(match.financials.eps,3);
+ assert.equal(match.financials.operatingCashFlow,100);
+ assert.equal(match.financials.debtRatioPct,40);
+ assert.equal(assessUndervaluation(row,null,"2026-09-24").valuationFlag,"unconfirmed");
+ detail.score.metrics.perPercentile=null;
+ assert.equal(assessUndervaluation(row,detail,"2026-09-24").valuationFlag,"unconfirmed");
+ detail.score.metrics.perPercentile=25;
+ detail.official.date="2026-09-23";
+ assert.equal(assessUndervaluation(row,detail,"2026-09-24").valuationFlag,"unconfirmed");
+});
+test("cheap PE alone or poor cash flow cannot trigger undervalued label",()=>{
+ const detail=make("2001",12,1.3,4),row={stock:"2001",screening:{per:12,pbr:1.3}};
+ detail.score.parts.fundamental.items.find(x=>x.name==="營業現金流（初步）").value=-200;
+ assert.equal(assessUndervaluation(row,detail,"2026-09-24").valuationFlag,"unconfirmed");
+ detail.score.parts.fundamental.items.find(x=>x.name==="營業現金流（初步）").value=100;
+ row.screening.pbr=3;
+ assert.equal(assessUndervaluation(row,detail,"2026-09-24").valuationFlag,"unconfirmed");
 });
