@@ -41,26 +41,33 @@ export function indicators(prices){
   macdCross:crossBefore<=0&&crossNow>0?"golden":crossBefore>=0&&crossNow<0?"death":"none",
   volumeRatio:ratio===null?null:round(ratio),volatility20:round(volatility),maxDrawdown60:round(drawdown)};
 }
-function quarterValue(rows,date,type){return rows.find(r=>r.date===date&&r.type===type)?.value??null}
+const statementType=(row,types)=>types.some(x=>String(row.type||"").toLowerCase()===x.toLowerCase());
+const latestValid=(rows,marketDate,days)=>recent(rows.filter(x=>finite(num(x.value))),marketDate,days);
 function financialQuality(financials,cashFlows,balance,marketDate){
- const cash=recent(cashFlows.filter(r=>r.type==="CashFlowsFromOperatingActivities"&&finite(num(r.value))),
-  marketDate,180);
- const liabilities=recent(balance.filter(r=>r.type==="Liabilities"&&num(r.value)>=0),marketDate,180);
- const assets=liabilities?balance.find(r=>r.date===liabilities.date&&r.type==="Assets"&&num(r.value)>0):null;
- const borrowRatio=assets&&liabilities?num(liabilities.value)/num(assets.value)*100:null;
- // Within the same cash-flow statement/reporting period, compare operating cash flow to pre-tax income.
- const beforeTax=cash?quarterValue(cashFlows,cash.date,"NetIncomeBeforeTax"):null;
- const conversion=cash&&num(beforeTax)>0?num(cash.value)/num(beforeTax):null;
- const valid=conversion!==null&&finite(borrowRatio)&&borrowRatio>=0&&borrowRatio<=100&&
-   fresh(marketDate,liabilities.date,180);
- return {date:valid?cash.date:null,debtDate:valid?liabilities.date:null,
-  debtRatio:valid?round(borrowRatio):null,cashConversion:valid?round(conversion):null,
-  score:valid?Math.min(5,conversion>=1?5:conversion>=.7?4:conversion>=.4?2:0)+
-   (borrowRatio<=30?5:borrowRatio<=50?4:borrowRatio<=70?2:0):null};
+ const cash=latestValid(cashFlows.filter(x=>statementType(x,["CashFlowsFromOperatingActivities"])),marketDate,210);
+ const liabilities=latestValid(balance.filter(x=>statementType(x,["Liabilities","TotalLiabilities","LiabilitiesTotal"])),marketDate,210);
+ const assets=liabilities?balance.find(x=>x.date===liabilities.date&&statementType(x,["Assets","TotalAssets"])&&num(x.value)>0):null;
+ const debtRatio=assets&&liabilities?num(liabilities.value)/num(assets.value)*100:null;
+ // Both numerator and denominator must come from the SAME cash-flow reporting period.
+ // A quarterly profit line cannot be divided into year-to-date operating cash flow.
+ const beforeTax=cash?cashFlows.find(x=>x.date===cash.date&&statementType(x,["NetIncomeBeforeTax","ProfitLossBeforeTax"])&&finite(num(x.value))):null;
+ const conversion=cash&&num(beforeTax?.value)>0?num(cash.value)/num(beforeTax.value):null;
+ const valid=finite(conversion)&&finite(debtRatio)&&debtRatio>=0&&debtRatio<=100&&
+  fresh(marketDate,liabilities.date,210)&&fresh(marketDate,cash.date,210);
+ return {date:cash?.date??null,debtDate:liabilities?.date??null,
+  debtRatio:finite(debtRatio)?round(debtRatio):null,
+  cashConversion:finite(conversion)?round(conversion):null,
+  score:valid?(conversion>=1?5:conversion>=.7?4:conversion>=.4?2:0)+
+   (debtRatio<=30?5:debtRatio<=50?4:debtRatio<=70?2:0):null,
+  note:!cash?"近期營業現金流缺漏":
+   !beforeTax?"同一期現金流量表缺稅前淨利":
+   !assets||!liabilities?"同一期資產負債表缺總資產或總負債":
+   !valid?"財報報告期間過舊或數值不可比較":
+   "現金流／稅前淨利為同一期累計口徑，負債比為報表期末比率"};
 }
 function institutionalRatio(institutional,prices,marketDate){
  const p=[...prices].filter(x=>x.date<=marketDate).sort((a,b)=>a.date.localeCompare(b.date)).slice(-5);
- if(p.length!==5||!fresh(marketDate,p.at(-1).date,4))return null;
+ if(p.length!==5||!fresh(marketDate,p.at(-1).date,10))return null;
  let net=0,total=0;
  for(const day of p){
   if(!(num(day.volume)>0))return null;
@@ -144,9 +151,11 @@ export function scoreStock({
    eps?.date,"FinMind","以單季EPS及同季年增計分；配股／分割後歷史值可能不可比"),
   part("營業現金流（初步）",10,cashScore,cashValue,operating?.date,operating?"FinMind":null,
    "營業現金流正負及同年同期，單位為原始財報金額"),
-  part("獲利品質與負債",10,quality.score,quality.score===null?null:
-   {cashConversion:quality.cashConversion,debtRatioPct:quality.debtRatio},quality.date,
-   quality.score===null?null:"FinMind","同一期現金流／稅前淨利比與負債／總資產；金融業應使用不同模型"),
+  part("獲利品質與負債",10,quality.score,
+   quality.debtRatio===null&&quality.cashConversion===null?null:
+    {cashConversion:quality.cashConversion,debtRatioPct:quality.debtRatio},
+   quality.date,quality.debtRatio===null&&quality.cashConversion===null?null:"FinMind",
+   quality.note+"；金融業需依其專用財務口徑解讀"),
   part("估值／本益比",10,perScore,currentPER?{per:num(currentPER.per),
     oneYearPercentile:perPercentile}:null,currentPER?.date,
    currentPER?"FinMind":null,"近12個月個股自身本益比分位；須至少60筆有效歷史，未作跨產業比較")
