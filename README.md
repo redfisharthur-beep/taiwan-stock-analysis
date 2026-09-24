@@ -29,8 +29,38 @@
 
 ## 尚未實作（正式發布前應規劃）
 
-全市場批次股票排名及 D1 歷史資料庫、進階 ROE／現金流、金融業專用模型、TDCC 股權、融資融券、重大公告及新聞的多來源查證、修正後還原價、公司行動、歷史回測、使用者登入與個人自選股、**授權後的 Goodinfo 自動比對**。全市場查詢和公開再散布前，確認 FinMind、TWSE、TPEx 與 Goodinfo 的資料使用授權、API 速率及再展示規定。
+全市場批次股票掃描（目前只有已查詢樣本的 D1 快照）、進階 ROE／現金流、金融業專用模型、TDCC 股權、融資融券、重大公告及新聞的多來源查證、修正後還原價、公司行動、歷史回測、使用者登入與個人自選股、**授權後的 Goodinfo 自動比對**。全市場查詢和公開再散布前，確認 FinMind、TWSE、TPEx 與 Goodinfo 的資料使用授權、API 速率及再展示規定。
 
 ## 測試
 
 GitHub Actions 於 push main 後執行 `npm test`；若需要本地測試，`npm install && npm test`。本地開發可建立未追蹤的 `.dev.vars` 並執行 `npm run dev`；正式網站不需要在你的電腦運作。
+
+## v0.3：每日觀察五檔與 K 線（新增）
+
+- 首頁底部新增「今日精選五檔 · 資料驗證榜」。載入 `/api/top5`，只使用同交易日 **官方與 FinMind 收盤價一致**且沒有來源錯誤的真實股票快照；排除跨日、不一致、無資料股票。
+- 若尚未完成全市場掃描及四面向 100 分資料，**只能顯示「已查詢樣本觀察」**，以共同完成的相同子指標覆蓋範圍排序，顯示「已評子項小計／覆蓋權重」而非完整綜合分數。它**不是全上市櫃前五，也不是五檔買入推薦**；沒有足夠且相同口徑的五檔時會少於五檔或保持空白。
+- 每檔卡片顯示基本面／消息面／籌碼面／技術面的小計、關鍵數值、高分具體理由、指標來源與日期；按「查看完整明細」載入該股票詳細頁。
+- 詳情新增近 70 個交易日的互動日 K（OHLC）及成交量；滑鼠或觸控查看開高低收與量，使用實際 FinMind 回傳資料，**沒有繪製虛構 K 棒**。技術分析暫未校正除權息／減資。
+- `/api/top5` 需要 Cloudflare D1 綁定 `DB`；`schema.sql` 建立 `stock_snapshots`。每次查詢個股且**相同交易日官方價一致**才保存快照；每小時第 10 分透過 Cron 更新最多 5 檔已保存股票。**目前沒有每天全市場自動掃描**，因此不能稱為全市場當日榜單。
+- 正式完整 100 分榜單還要：完整財務品質、合理同業估值、TDCC 週資料與融資融券、可追溯企業重大公告與新聞查證、所有上市櫃證券的批次更新、歷史回測及發布前資料授權。
+
+### 啟用每日觀察榜：Cloudflare D1（不必在本機執行）
+
+1. 登入 Cloudflare → Storage & databases → D1 SQL database → Create database，名稱可用 `taiwan-stock-analysis-db`。建立成功後，從資料庫詳情**複製 Database ID（UUID）**。ID 不是 API 金鑰；請勿分享 Cloudflare API Token 或 FinMind Token。
+2. 點進資料庫的 Console（SQL 主控台），將 GitHub 倉庫根目錄 `schema.sql` 的 SQL 指令貼上執行，建立 `stock_snapshots` 表格（`CREATE TABLE IF NOT EXISTS`，不會刪除既有資料）。
+3. 在 Worker → Settings → Bindings → Add → D1 Database，Variable name 設定為 **`DB`**，選剛建立的資料庫。
+4. **非常重要：GitHub 與 Wrangler 後續部署需在倉庫 `wrangler.jsonc` 保留以下設定**（將 `<實際 UUID>` 換成剛複製的 Database ID；可把 ID 提供給協助開發的人員直接更新 GitHub）：
+   
+   ```json
+   "d1_databases": [
+     {"binding": "DB", "database_name": "taiwan-stock-analysis-db", "database_id": "<實際 UUID>"}
+   ]
+   ```
+   
+   將這個欄位加入 `wrangler.jsonc` 的最外層 JSON 物件，與 `assets`、`observability` 平行，不要用上述節錄內容取代整個檔案。資料庫 ID 尚未建立前，**不要**在設定檔填假 UUID，否則部署可能失敗。
+5. Worker 重新部署後，確認 `/api/health` 顯示 `rankingDatabaseConfigured: true`。先用首頁查詢至少五檔股票，檢查回應中的官方核對狀態、日期及缺漏資料，然後回到首頁底部查看榜單。不同股票若完成的子指標不同，不會互相比較。
+6. Cloudflare Worker 的 Cron Triggers 使用 UTC 排程，每小時第 10 分重新整理最多五筆已收錄的分析快照；`FinMind` 金鑰與 D1 的每日免費用量上限都需要注意。**此排程不等於全市場每日完成掃描**。
+
+### 若看不到五檔
+- `DB` 尚未連接、資料表未建立、已查詢股票不足五檔、官方資料比對不一致、行情日期不同、FinMind 額度不足、覆蓋的評分項目不相同，都可能導致無法顯示五筆。畫面會說明當前可用的查詢樣本。
+- Goodinfo 仍為手動同日資料核對，尚無核准的機器擷取接口；不能假裝已完成該來源的自動驗證。
