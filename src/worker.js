@@ -2,13 +2,16 @@ import {finmind,officialQuote,officialCandidates,normalize,reconcile} from "./pr
 import {scoreStock} from "./scoring.js";
 import {selectDailyLeaders} from "./ranking.js";
 import {getGoodinfoQuote,compareGoodinfo} from "./goodinfo.js";
+import {getHoldingRows,concentration} from "./holding.js";
+import {loadOfficialDisclosures,researchNews} from "./news.js";
+import {valueWatchlist} from "./value.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
  "X-Content-Type-Options":"nosniff"}});
 const valid=s=>String(s||"").length>=4&&String(s||"").length<=6&&
  [...String(s)].every(ch=>ch>="0"&&ch<="9");
-async function analyze(stock,env,override=null){
+async function analyze(stock,env,override=null,shared=null){
  if(!env.FINMIND_TOKEN)return reply({error:"尚未在 Cloudflare 設定 FINMIND_TOKEN Secret。"},503);
  const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],
   ["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35],
@@ -23,7 +26,15 @@ async function analyze(stock,env,override=null){
  const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
  const verification=reconcile(official,clean.prices);
- const score=scoreStock({...clean,official});
+ let holding=null,newsResearch=null;
+ const marketDate=clean.prices.at(-1)?.date;
+ try{const tdccRows=shared?.tdccRows??await getHoldingRows();
+   holding=concentration(tdccRows,stock,marketDate);
+ }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}
+ try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",env,
+   shared?.newsByMarket?.[official?.market||override?.market]);}
+ catch(error){warnings.push("重大訊息核對暫未完成："+String(error.message||error))}
+ const score=scoreStock({...clean,official,holding,newsResearch});
  if(verification.state!=="一致"||official?.date!==clean.prices.at(-1)?.date)score.score=null;
  const latest=clean.prices.at(-1);
  const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&
@@ -35,7 +46,8 @@ async function analyze(stock,env,override=null){
  twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
  return reply({stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
-  score,candles,sourceWarnings:[...warnings,...(official?[]:officialResult.errors)],links,
+  score,candles,holding,newsResearch,valuationLatest:clean.valuation.filter(v=>v.date<=marketDate).sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
+  sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links,
   goodinfo});
 }
 // 免 D1：每次快取到期直接由官方最新行情選出流動性候選，再逐檔核對 FinMind。
@@ -47,11 +59,22 @@ async function computeTopFive(env){
  if(!official.candidates.length)return {ready:false,reason:"尚未取得帶有有效交易日期的官方行情，無法產生今日觀察名單。",
   marketDate:official.marketDate,sourceWarnings:official.warnings,stocks:[]};
  const selected=official.candidates;
+ // Each official open-data file is requested once per daily computation, not once per stock.
+ const [tdccResult,listedNews,otcNews]=await Promise.allSettled([
+  getHoldingRows(),loadOfficialDisclosures("上市"),loadOfficialDisclosures("上櫃")
+ ]);
+ const shared={
+  tdccRows:tdccResult.status==="fulfilled"?tdccResult.value:[],
+  newsByMarket:{
+   "上市":listedNews.status==="fulfilled"?listedNews.value:{rows:[],error:"上市公告來源暫時不可用"},
+   "上櫃":otcNews.status==="fulfilled"?otcNews.value:{rows:[],error:"上櫃公告來源暫時不可用"}
+  }
+ };
  const results=[];
  // 小批量連線，避免同時向 API 傳送大量請求；仍需注意各帳戶配額。
  for(let i=0;i<selected.length;i+=2){
   const pair=await Promise.allSettled(selected.slice(i,i+2).map(async row=>{
-   const res=await analyze(row.stock,env,row);
+   const res=await analyze(row.stock,env,row,shared);
    if(!res.ok)return {stock:row.stock,error:"分析資料暫不可用（HTTP "+res.status+"）"};
    return await res.json();
   }));
@@ -61,7 +84,10 @@ async function computeTopFive(env){
  const good=results.filter(r=>r&&r.stock&&r.score);
  const ranking=selectDailyLeaders(good,{marketDate:official.marketDate,candidateCount:selected.length});
  const failed=results.filter(r=>r.error).map(r=>r.stock+"："+r.error);
- return {ready:true,...ranking,asOf:new Date().toISOString(),sourceWarnings:[...official.warnings,...failed],
+ const value=valueWatchlist(good,{marketDate:official.marketDate,candidateCount:selected.length});
+ return {ready:true,...ranking,value,asOf:new Date().toISOString(),
+  sourceWarnings:[...official.warnings,...failed,
+    ...(tdccResult.status==="rejected"?["TDCC 資料暫無法取得"]:[])],
   markets:official.markets,
   reason:ranking.stocks.length?
    "僅比較官方依成交金額預篩的 "+selected.length+" 檔候選股票，非全市場完整四面向最高分前五。":
@@ -70,10 +96,10 @@ async function computeTopFive(env){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"on_demand_no_database",version:"0.6.0",time:new Date().toISOString()});
+  rankingMode:"on_demand_no_database",version:"0.7.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.6");
+  const key=new Request(url.origin+"/api/top5?model=0.7");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env),response=reply(body,200,1800);
@@ -85,7 +111,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.6"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.7"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=await analyze(stock,env);
