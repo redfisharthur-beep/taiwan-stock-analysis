@@ -103,6 +103,23 @@ function present(d){
  for(const warning of d.sourceWarnings||[])sources.append(el("p","資料更新提示："+warning,"muted"));
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
 }
+$("sinopac-owner-check").addEventListener("click",async()=>{
+ if(!current)return;
+ const token=$("sinopac-owner-token").value.trim(),result=$("sinopac-owner-result");
+ if(token.length<32){result.textContent="請輸入 Cloudflare 設定的私人測試碼（至少32字元），不是券商金鑰。";return;}
+ const button=$("sinopac-owner-check");button.disabled=true;result.textContent="正在取得永豐私人行情…";
+ try{
+  const response=await fetch("/api/shioaji/test?stock="+encodeURIComponent(current.stock),{
+   headers:{Authorization:"Bearer "+token,Accept:"application/json"},cache:"no-store"
+  });
+  if(response.status===404)throw Error("測試碼不正確或私人測試未啟用");
+  const data=await response.json();
+  if(!response.ok)throw Error(data.message||data.error||"永豐資料暫不可用");
+  result.textContent="永豐快照："+data.price+" 元 · "+data.observedAt+
+   "。此為私人查詢型行情，不代表官方收盤價；未納入公開評分。";
+ }catch(error){result.textContent="尚未取得永豐行情："+error.message}
+ finally{button.disabled=false;$("sinopac-owner-token").value="";}
+});
 $("search").addEventListener("submit",async e=>{
  e.preventDefault();const stock=$("ticker").value.trim();
  if(!/^\d{4,6}$/.test(stock)){$("status").textContent="請輸入正確股票代號。";return;}
