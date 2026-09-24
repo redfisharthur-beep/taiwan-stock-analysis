@@ -146,7 +146,7 @@ async function computeTopFive(env){
    coveredPoints:validDeep?deep.score.coveredPoints:0,
    parts:validDeep?Object.fromEntries(Object.entries(deep.score.parts).map(([k,v])=>
     [k,{earned:v.earned,covered:v.covered,max:v.max}])):null,
-   reason:"上市櫃官方行情與估值初步篩選；財報待查者不標記被低估"
+   reason:"上市櫃官方行情與估值初步篩選；財報待查者不標記被低估"};
  });
  return {...base,stocks,analyzedCount:investigated.size,
   reason:marketComplete?
