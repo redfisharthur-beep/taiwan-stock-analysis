@@ -26,7 +26,7 @@
 <div id="result" hidden>
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
  <div id="verify" class="notice"></div><div id="overview" class="overview"></div><div id="warnings" class="muted"></div></section>
- <section class="panel" id="chart-panel"><div class="card-head"><h3>K 線走勢</h3><span class="pill">原始日 K</span></div><p class="muted">K 線顯示實際成交價；均線、波動與回撤用還原價計算。</p><canvas id="kline" width="800" height="350" role="img" aria-label="近70交易日日K線及成交量"></canvas><div class="muted" id="kline-tip" role="status"></div></section>
+ <section class="panel" id="chart-panel"><div class="card-head"><h3>K 線走勢</h3><span class="pill">原始日 K</span></div><p class="muted">K 線顯示真實成交價；技術指標優先採還原價，若尚未更新則改用未還原行情並明確標示。</p><canvas id="kline" width="800" height="350" role="img" aria-label="近70交易日日K線及成交量"></canvas><div class="muted" id="kline-tip" role="status"></div></section>
  <section class="scoring" id="parts" aria-label="四面向評分詳情"></section>
  <details class="panel sources" id="evidence-panel"><summary>消息來源與查證紀錄</summary>
   <p class="muted" id="news-status">尚未完成事件交叉核對。</p>
@@ -34,7 +34,7 @@
   <p class="muted">同一篇轉載只算一個來源；查不到新聞不代表沒有風險，亦不等於利多。</p>
  </details>
 
- <details class="panel sources"><summary>資料來源與更新說明</summary><div id="sources"></div><p class="muted">財報、籌碼與行情更新時間不同；未取得資料不補零，也不重分配權重。K 線顯示原始價，技術面須取得 FinMind 還原價才計分。</p></details>
+ <details class="panel sources"><summary>資料來源與更新說明</summary><div id="sources"></div><div id="data-health"></div><p class="muted">財報、籌碼與行情更新時間不同；未取得資料不補零，也不重分配權重。K 線顯示原始價；技術指標可採還原價或明確標記的未還原日行情。</p></details>
 </div>
 </main><footer>資料僅供研究參考，非買賣建議。</footer>
 </div><script type="module" src="/app.js"></script></body></html>
