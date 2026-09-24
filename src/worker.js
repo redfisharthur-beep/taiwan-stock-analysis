@@ -1,55 +1,94 @@
-import {finmind,officialQuote,normalize,reconcile} from "./providers.js";
+import {finmind,officialQuote,officialCandidates,normalize,reconcile} from "./providers.js";
 import {scoreStock} from "./scoring.js";
-import {readTopFive,saveSnapshot} from "./ranking.js";
-const reply=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"public, max-age=0, s-maxage=900","X-Content-Type-Options":"nosniff"}});
-const valid=s=>/^\d{4,6}$/.test(s);
-async function analyze(stock,env){
+import {selectDailyLeaders} from "./ranking.js";
+const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
+ "Content-Type":"application/json; charset=utf-8",
+ "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
+ "X-Content-Type-Options":"nosniff"}});
+const valid=s=>String(s||"").length>=4&&String(s||"").length<=6&&
+ [...String(s)].every(ch=>ch>="0"&&ch<="9");
+async function analyze(stock,env,override=null){
  if(!env.FINMIND_TOKEN)return reply({error:"尚未在 Cloudflare 設定 FINMIND_TOKEN Secret。"},503);
- const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35]];
- const data=await Promise.allSettled(datasets.map(([d,n])=>finmind(env,stock,d,n)));
- const warnings=data.flatMap((r,i)=>r.status==="rejected"?[datasets[i][0]+": "+String(r.reason?.message||"取得失敗")]:[]);
- if(data[0].status==="rejected")return reply({error:"無法取得真實歷史股價，已停止評分。",warnings},503);
- const get=i=>data[i].status==="fulfilled"?data[i].value:[];
- const clean=normalize(get(0),get(1),get(2),get(3));
- if(clean.prices.length===0)return reply({error:"查無此股票的可用行情，未產生分數。",warnings},404);
- const officialResult=await officialQuote(stock);
+ const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],
+  ["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35]];
+ const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,stock,name,days)));
+ const warnings=data.flatMap((r,i)=>r.status==="rejected"?
+  [datasets[i][0]+"："+String(r.reason?.message||"取得失敗")]:[]);
+ if(data[0].status==="rejected")return reply({error:"FinMind 歷史行情取得失敗，已停止評分。",warnings},503);
+ const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
+ const clean=normalize(rows(0),rows(1),rows(2),rows(3));
+ if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings},404);
+ const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
- const check=reconcile(official,clean.prices);
- const scored=scoreStock({...clean,official});
- // 官方價格不一致時，不允許顯示完整評分；與 FinMind 日期不同僅顯示部分分析。
- if(check.state==="不一致")scored.score=null;
+ const verification=reconcile(official,clean.prices);
+ const score=scoreStock({...clean,official});
+ if(verification.state!=="一致"||official?.date!==clean.prices.at(-1)?.date)score.score=null;
  const latest=clean.prices.at(-1);
- const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&p.high>=Math.max(p.open,p.close,p.low)&&p.low<=Math.min(p.open,p.close,p.high)).slice(-120);
- const links={goodinfo:"https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID="+stock,twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
- const result={stock,name:official?.name||"",market:official?.market||"尚未辨認",asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification:check,score:scored,candles,sourceWarnings:[...warnings,...(official?[]:officialResult.errors)],links,goodinfo:{mode:"manual_only",note:"可開啟 Goodinfo 手動輸入相同交易日的收盤價核對；未取得自動擷取授權，不宣稱已自動查證。"}};
- if(env.DB && check.state==="一致" && official?.date===latest.date){
-   try{await saveSnapshot(env.DB,result)}catch(e){result.sourceWarnings.push("榜單儲存失敗："+String(e.message||e))}
+ const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&
+ p.high>=Math.max(p.open,p.close,p.low)&&p.low<=Math.min(p.open,p.close,p.high)).slice(-120);
+ const links={goodinfo:"https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID="+stock,
+ twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
+ return reply({stock,name:official?.name||"",market:official?.market||"尚未辨認",
+  asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
+  score,candles,sourceWarnings:[...warnings,...(official?[]:officialResult.errors)],links,
+  goodinfo:{mode:"manual_only",note:"Goodinfo 只有同日人工比對入口，尚未進行授權後自動取得及評分。"}});
+}
+// 免 D1：每次快取到期直接由官方最新行情選出流動性候選，再逐檔核對 FinMind。
+// 樣本範圍 10 檔，不能宣稱為全台股綜合得分最高前五。
+async function computeTopFive(env){
+ if(!env.FINMIND_TOKEN)return {ready:false,reason:"尚未設定 FINMIND_TOKEN Secret；未產生榜單。",
+  marketDate:null,stocks:[]};
+ const official=await officialCandidates(5);
+ if(!official.candidates.length)return {ready:false,reason:"尚未取得帶有有效交易日期的官方行情，無法產生今日觀察名單。",
+  marketDate:official.marketDate,sourceWarnings:official.warnings,stocks:[]};
+ const selected=official.candidates;
+ const results=[];
+ // 小批量連線，避免同時向 API 傳送大量請求；仍需注意各帳戶配額。
+ for(let i=0;i<selected.length;i+=2){
+  const pair=await Promise.allSettled(selected.slice(i,i+2).map(async row=>{
+   const res=await analyze(row.stock,env,row);
+   if(!res.ok)return {stock:row.stock,error:"分析資料暫不可用（HTTP "+res.status+"）"};
+   return await res.json();
+  }));
+  results.push(...pair.map((p,j)=>p.status==="fulfilled"?p.value:
+   {stock:selected[i+j].stock,error:String(p.reason?.message||p.reason)}));
  }
- return reply(result);
+ const good=results.filter(r=>r&&r.stock&&r.score);
+ const ranking=selectDailyLeaders(good,{marketDate:official.marketDate,candidateCount:selected.length});
+ const failed=results.filter(r=>r.error).map(r=>r.stock+"："+r.error);
+ return {ready:true,...ranking,asOf:new Date().toISOString(),sourceWarnings:[...official.warnings,...failed],
+  markets:official.markets,
+  reason:ranking.stocks.length?
+   "僅比較官方依成交金額預篩的 "+selected.length+" 檔候選股票，非全市場完整四面向最高分前五。":
+   "此次候選股尚未取得足夠的同交易日、同評分口徑資料，未產生五檔名單。"};
 }
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
- if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,rankingDatabaseConfigured:!!env.DB,version:"0.3.0",time:new Date().toISOString()});
+ if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
+  rankingMode:"on_demand_no_database",version:"0.4.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
-   const data=await readTopFive(env.DB);
-   return reply(data,200);
+  const cache=caches.default;
+  const key=new Request(url.origin+"/api/top5");
+  const hit=await cache.match(key);if(hit)return hit;
+  try{
+   const body=await computeTopFive(env),response=reply(body,200,1800);
+   if(body.ready&&body.stocks.length)ctx.waitUntil(cache.put(key,response.clone()));
+   return response;
+  }catch(err){return reply({ready:false,stocks:[],reason:"官方資料或分析 API 連線異常；未產生推薦名單。",
+   detail:String(err.message||err)},503)}
  }
  if(url.pathname==="/api/analyze"){
-   const stock=(url.searchParams.get("stock")||"").trim();if(!valid(stock))return reply({error:"請輸入 4 至 6 位數的股票代號。"},400);
-   const key=new Request(url.origin+"/api/analyze?stock="+stock);
-   const cache=caches.default;const hit=await cache.match(key);if(hit)return hit;
-   try{const res=await analyze(stock,env);if(res.ok)ctx.waitUntil(cache.put(key,res.clone()));return res}catch(e){return reply({error:"資料來源連線異常；未產生評分。",detail:String(e.message||e)},503)}
+  const stock=(url.searchParams.get("stock")||"").trim();
+  if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
+  const key=new Request(url.origin+"/api/analyze?stock="+stock),cache=caches.default;
+  const hit=await cache.match(key);if(hit)return hit;
+  try{
+   const res=await analyze(stock,env);
+   if(res.ok)ctx.waitUntil(cache.put(key,res.clone()));
+   return res;
+  }catch(err){return reply({error:"資料來源連線異常；未產生評分。",
+   detail:String(err.message||err)},503)}
  }
  if(url.pathname.startsWith("/api/"))return reply({error:"找不到 API"},404);
  return env.ASSETS.fetch(request);
- },
- async scheduled(event,env,ctx){
-   if(!env.DB||!env.FINMIND_TOKEN)return;
-   try{
-     const items=await env.DB.prepare("SELECT stock FROM stock_snapshots ORDER BY updated_at ASC LIMIT 5").all();
-     for(const item of items.results||[]){
-       try{await analyze(item.stock,env)}catch(e){console.error("refresh stock failed",item.stock,String(e.message||e))}
-     }
-   }catch(e){console.error("scheduled refresh unavailable",String(e.message||e))}
- }
-};
+}};
