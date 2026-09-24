@@ -157,7 +157,8 @@ export function scoreStock({
  const marginScore=marginChange===null?null:marginChange<0?(marginPct!==null&&marginPct<=-2?5:4):
   marginChange===0?2:1;
  const matched=name=>newsResearch?.items?.find(x=>x.name===name)||null;
- const event=matched("重大公告與事件"),report=matched("獨立新聞來源");
+ const event=matched("重大公告與事件"),report=matched("獨立新聞來源"),
+  sector=matched("產業事件");
  const fundamental=[
   part("單月營收年增率",10,yoy===null?null:yoy>=20?10:yoy>=10?8:yoy>=0?6:yoy>=-10?3:1,
    yoy===null?null:round(yoy)+"%",lastRev?.date,"FinMind","比較去年同月；逾90天不計分"),
@@ -179,7 +180,8 @@ export function scoreStock({
    event?.note||"尚無經跨來源確認的重大事件"),
   part("獨立新聞來源",3,report?.score??null,report?.value??null,report?.date,report?.source,
    report?.note||"原始獨立媒體事件尚未完成核實"),
-  part("產業事件",2,null,null,null,null,"產業事件尚無可核實的資料")
+  part("產業事件",2,sector?.score??null,sector?.value??null,sector?.date,
+   sector?.source,sector?.note||"沒有來自兩個獨立原始媒體、同一事件識別碼的授權產業報導")
  ];
  const chips=[
   part("法人近五日淨買賣／成交量",10,flowScore,flowStats?
