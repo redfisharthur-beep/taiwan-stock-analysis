@@ -21,9 +21,9 @@ const norm=x=>String(x??"").replace(/\s+/g," ").trim();
 export function eventKind(title){
  const t=norm(title);
  // Strict case-specific language, not stock-price sentiment.
- if(/(?:取消|終止|未取得|澄清|否認)/.test(t))return null;
+ if(/(?:未取得|澄清|否認)/.test(t))return null;
+ if(/(?:撤銷|終止|取消).{0,8}(?:重大訂單|重大合約)/.test(t))return "order_cancelled";
  if(/(?:取得|獲得).{0,8}(?:重大訂單|長期供貨合約)/.test(t))return "order_won";
- if(/(?:撤銷|終止).{0,8}(?:重大訂單|重大合約)/.test(t))return "order_cancelled";
  if(/(?:重大訴訟).{0,10}(?:敗訴|須賠償)/.test(t))return "adverse_litigation";
  if(/(?:財務報告|財報).{0,10}(?:重編|更正)/.test(t))return "financial_restatement";
  return null;
@@ -97,6 +97,21 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null){
  }
  const events=corroborate(official.events,articles,stock);
  const result=scoreNews(events);
+ if(result.status==="unverified"&&official.events.length===0&&articles.length){
+   const independent=articles.filter(a=>a.stock===stock&&PUBLISHERS.has(a.publisher)&&a.originalPublisher===a.publisher&&
+     typeof a.url==="string"&&a.url.startsWith("https://")&&typeof a.title==="string"&&a.title.length>=10&&
+     typeof a.publishedAt==="string"&&a.publishedAt<=marketDate&&eventKind(a.title)===a.eventType);
+   const byKind=new Map();
+   for(const a of independent){const key=a.eventType+"|"+a.publishedAt;if(!byKind.has(key))byKind.set(key,[]);byKind.get(key).push(a)}
+   const group=[...byKind.values()].find(group=>new Set(group.map(x=>x.publisher)).size>=2);
+   if(group){result.status="independent_media_only";result.impact=types[group[0].eventType]?.impact||"影響待查";
+    result.items=[{name:"獨立新聞來源",max:3,score:result.impact==="可能負面"?0:2,
+      value:group[0].title,date:group[0].publishedAt,source:"兩個獨立原始媒體",
+      note:"暫未取得公司重大公告；只核對兩個獨立新聞原始來源，尚不能確認影響幅度"}];
+    result.mediaEvidence=group.map(a=>({publisher:a.publisher,title:a.title,url:a.url,date:a.publishedAt}));
+   }
+ }
+
  return {...result,checked:[{name:market==="上市"?"臺灣證券交易所／MOPS":"櫃買中心／MOPS",
   status:official.error?"unavailable":"checked",url:market==="上市"?OFFICIAL.listed:OFFICIAL.otc},
   ...["中央社","MoneyDJ 理財網","Reuters 路透社"].map(name=>({name,
@@ -105,5 +120,7 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null){
     url:"https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID="+stock}))],
   warnings:[official.error,feedError].filter(Boolean),
   note:result.status==="unverified"?
-   "沒有完成官方公告與獨立報導的同事件核對，消息面不評分；未找到新聞不代表沒有風險。":"僅反映已核實的事件類別，不預測股價"};
+   "沒有完成同事件跨來源核對；未找到新聞不代表沒有風險。":
+   result.status==="independent_media_only"?"兩個獨立媒體同事件，但公司公告仍待確認；低權重暫評。":
+   "僅反映已核實的事件類別，不預測股價"};
 }
