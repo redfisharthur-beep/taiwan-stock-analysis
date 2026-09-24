@@ -73,7 +73,7 @@ function institutionalRatio(institutional,prices,marketDate){
 }
 export function scoreStock({
  prices=[],adjusted=[],revenues=[],financials=[],institutional=[],valuation=[],
- cashFlows=[],balance=[],margin=[],official=null,holding=null,newsResearch=null
+ cashFlows=[],balance=[],margin=[],official=null,holding=null,newsResearch=null,brokerTechnicalPrices=[]
 }={}){
  const raw=[...prices].sort((a,b)=>a.date.localeCompare(b.date)),latest=raw.at(-1)||null;
  const date=latest?.date||null;
@@ -86,10 +86,16 @@ export function scoreStock({
    ...r,volume:rawDates.get(r.date).volume
  }));
  const cleanAdj=aligned.length>=61&&aligned.at(-1).date===date?aligned:null;
- const technicalMode=cleanAdj?"adjusted":raw.length>=61?"raw":"unavailable";
+ const brokerRows=[...brokerTechnicalPrices].sort((a,b)=>a.date.localeCompare(b.date));
+ const validBroker=brokerRows.length>=61&&brokerRows.at(-1).date===date&&
+   brokerRows.every(r=>num(r.close)>0&&r.volume===null);
+ const technicalMode=cleanAdj?"adjusted":raw.length>=61?"raw":
+   validBroker?"broker_raw":"unavailable";
  const tech=technicalMode==="adjusted"?indicators(cleanAdj):
-   technicalMode==="raw"?indicators(raw):null;
- const technicalSource=technicalMode==="adjusted"?"FinMind TaiwanStockPriceAdj":"FinMind TaiwanStockPrice";
+   technicalMode==="raw"?indicators(raw):
+   technicalMode==="broker_raw"?indicators(brokerRows):null;
+ const technicalSource=technicalMode==="adjusted"?"FinMind TaiwanStockPriceAdj":
+   technicalMode==="broker_raw"?"Sinopac Shioaji kbars（未還原；已核對）":"FinMind TaiwanStockPrice";
  const lastRev=recent(revenues.filter(r=>num(r.revenue)>0),date,90);
  const yearAgo=lastRev&&revenues.find(r=>Number(r.revenue_year)===Number(lastRev.revenue_year)-1&&
   Number(r.revenue_month)===Number(lastRev.revenue_month));
@@ -167,7 +173,9 @@ export function scoreStock({
   "採用已對齊交易日的還原收盤價；成交量來自同日原始行情":
   technicalMode==="raw"?
   "使用真實未還原日行情計算，可能受除權息、減資或股票分割影響；未冒充還原價":
-  "原始與還原日行情均不足61筆，尚無法計算完整技術指標";
+  technicalMode==="broker_raw"?
+  "FinMind歷史筆數不足；採同日核對的永豐完整分K彙整未還原日線。無已驗證成交量單位，量價項目待評；除權息可能影響指標":
+  "原始、還原與可核對的永豐日行情均不足61筆，尚無法計算完整技術指標";
  const riskScore=tech?tech.volatility20<=25&&tech.maxDrawdown60<=10?5:
   tech.volatility20<=35&&tech.maxDrawdown60<=15?4:
   tech.volatility20<=45&&tech.maxDrawdown60<=22?3:1:null;
@@ -199,6 +207,7 @@ export function scoreStock({
   diagnostics:{
     technical:{mode:technicalMode,rawCount:raw.length,rawDate:date,
       adjustedCount:adj.length,adjustedDate:adj.at(-1)?.date??null,
+      brokerCount:brokerRows.length,brokerDate:brokerRows.at(-1)?.date??null,
       alignedCount:aligned.length,reason:techNote}
   },
   disclaimer:"資料涵蓋率與實際得分分開；缺資料不補0分、不重新加權，分數不代表未來報酬。"};
