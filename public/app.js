@@ -115,38 +115,15 @@ $("search").addEventListener("submit",async e=>{
   $("result").scrollIntoView({behavior:"smooth",block:"start"});
  }catch(error){$("status").textContent="查詢未完成："+error.message;}finally{btn.disabled=false;}
 });
-async function refreshDaily(){
- const status=$("daily-status"),list=$("daily-list"),stamp=$("daily-date");list.replaceChildren();
- try{
-  const response=await fetch("/api/top5");if(!response.ok)throw Error("資料服務暫不可用");
-  const d=await response.json();stamp.textContent=d.marketDate||"尚無資料";
-  if(!d.ready||!d.stocks?.length){status.textContent=d.reason||"目前沒有足夠資料，暫不顯示名單。";return;}
-  status.textContent="候選 "+(d.candidateCount||0)+" 檔 · 可比較 "+d.verifiedComparableCount+
-   " 檔 · 涵蓋 "+d.coveragePoints+"/100（尚非全市場排名）";
-  for(const stock of d.stocks){
-   const card=el("article","","daily-item"),rank=el("div",String(stock.rank),"daily-rank"),
-    body=el("div"),points=el("div","","daily-parts"),right=el("div","","daily-score");
-   body.append(el("div",(stock.name||"股票")+" "+stock.stock,"daily-name"),
-    el("div",stock.date+" · "+stock.market,"daily-sub"));
-   for(const [key,label] of [["fundamental","基本"],["news","消息"],["chips","籌碼"],["technical","技術"]]){
-    const p=stock.parts[key];points.append(el("span",label+" "+(p.covered?p.earned+"/"+p.covered:"待補")));
-   }body.append(points);
-   for(const reason of (stock.reasons||[]).slice(0,2))
-    body.append(el("p",reason.name+" · "+reason.score+"/"+reason.max+" 分","daily-reason"));
-   right.append(el("strong",stock.observedPoints+" 分"),
-    el("small","已評項目 · "+stock.coveredPoints+"/100"));
-   const button=el("button","查看分析 →","daily-action");button.type="button";
-   button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
-   right.append(button);card.append(rank,body,right);list.append(card);
-  }
-  let v={stocks:[],eligibleCount:0,candidateCount:0},valueMarketDate=d.marketDate;
+async function refreshValue(exclude=[]){
+  let v={stocks:[],eligibleCount:0,candidateCount:0},valueMarketDate=null;
   try{
-    const excluded=(d.stocks||[]).map(x=>x.stock).slice(0,5).join(",");
+    const excluded=exclude.slice(0,5).join(",");
     const reply=await fetch("/api/value5?exclude="+encodeURIComponent(excluded));
     const result=await reply.json();
     if(!reply.ok)throw Error(result.reason||"價值觀察資料暫時不可用");
-    v=result.value||v;valueMarketDate=result.marketDate||valueMarketDate;
-  }catch(error){$("value-status").textContent="價值觀察資料暫不可用："+error.message;}
+    v=result.value||v;v.candidateCount=result.candidateCount||0;valueMarketDate=result.marketDate||valueMarketDate;
+  }catch(error){$("value-status").textContent="價值觀察資料暫不可用："+error.message;return;}
   const target=$("value-list");
   target.replaceChildren();$("value-date").textContent=valueMarketDate||"尚無資料";
   $("value-status").textContent=v.stocks?.length?
@@ -167,7 +144,33 @@ async function refreshDaily(){
    button.addEventListener("click",()=>{$("ticker").value=row.stock;$("search").requestSubmit();});
    right.append(button);card.append(badge,body,right);target.append(card);
   }
- }catch(error){stamp.textContent="暫無資料";status.textContent="今日資料暫未取得，請稍後重新整理。";$("value-status").textContent="價值觀察資料暫不可用。";}
+}
+async function refreshDaily(){
+ const status=$("daily-status"),list=$("daily-list"),stamp=$("daily-date");list.replaceChildren();
+ try{
+  const response=await fetch("/api/top5");if(!response.ok)throw Error("資料服務暫不可用");
+  const d=await response.json();stamp.textContent=d.marketDate||"尚無資料";
+  if(!d.ready||!d.stocks?.length){status.textContent=d.reason||"目前沒有足夠資料，暫不顯示名單。";await refreshValue([]);return;}
+  status.textContent="候選 "+(d.candidateCount||0)+" 檔 · 可比較 "+d.verifiedComparableCount+
+   " 檔 · 涵蓋 "+d.coveragePoints+"/100（尚非全市場排名）";
+  for(const stock of d.stocks){
+   const card=el("article","","daily-item"),rank=el("div",String(stock.rank),"daily-rank"),
+    body=el("div"),points=el("div","","daily-parts"),right=el("div","","daily-score");
+   body.append(el("div",(stock.name||"股票")+" "+stock.stock,"daily-name"),
+    el("div",stock.date+" · "+stock.market,"daily-sub"));
+   for(const [key,label] of [["fundamental","基本"],["news","消息"],["chips","籌碼"],["technical","技術"]]){
+    const p=stock.parts[key];points.append(el("span",label+" "+(p.covered?p.earned+"/"+p.covered:"待補")));
+   }body.append(points);
+   for(const reason of (stock.reasons||[]).slice(0,2))
+    body.append(el("p",reason.name+" · "+reason.score+"/"+reason.max+" 分","daily-reason"));
+   right.append(el("strong",stock.observedPoints+" 分"),
+    el("small","已評項目 · "+stock.coveredPoints+"/100"));
+   const button=el("button","查看分析 →","daily-action");button.type="button";
+   button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
+   right.append(button);card.append(rank,body,right);list.append(card);
+  }
+  await refreshValue((d.stocks||[]).map(x=>x.stock));
+ }catch(error){stamp.textContent="暫無資料";status.textContent="今日資料暫未取得，請稍後重新整理。";await refreshValue([]);}
 }
 const hero=$("hero-image");hero.addEventListener("load",()=>{
  if(hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=true;}
