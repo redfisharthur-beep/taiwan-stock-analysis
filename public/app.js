@@ -25,6 +25,53 @@ function source(parent,label,url){
  const row=el("div",label+" ","source-line");
  if(url){const a=el("a","查看 ↗");a.href=url;a.target="_blank";a.rel="noopener noreferrer";row.append(a);}parent.append(row);
 }
+
+const nval=(n,unit="")=>typeof n==="number"&&Number.isFinite(n)?n.toLocaleString("zh-TW",{maximumFractionDigits:2})+unit:"待查";
+function renderFinancials(d){
+ const target=$("financial-grid");target.replaceChildren();
+ const f=d.financialInsights||{},basic=d.score?.parts?.fundamental?.items||[];
+ const pick=name=>basic.find(x=>x.name===name)||{};
+ const eps=pick("EPS 與去年同季"),revenue=pick("單月營收年增率"),
+  cash=pick("營業現金流（初步）"),quality=pick("獲利品質與負債");
+ const metrics=[
+  ["每股盈餘 EPS",eps.value?.eps," 元",eps.date,"每股獲利；請與去年同季比較"],
+  ["EPS 年增率",eps.value?.yoyPct,"%",eps.date,"反映每股獲利相對去年同季變化"],
+  ["單月營收年增率",f.monthlyRevenueYoY??Number.parseFloat(revenue.value),"%",f.revenueDate||revenue.date,"與去年同月比較；單月波動不代表獲利"],
+  ["毛利率",f.grossMargin,"%",f.incomeDate,"同一報表期毛利／營收"],
+  ["營業利益率",f.operatingMargin,"%",f.incomeDate,"同一報表期營業利益／營收"],
+  ["淨利率",f.netMargin,"%",f.incomeDate,"同一報表期淨利／營收"],
+  ["季度 ROE（簡化）",f.quarterlyRoe,"%",f.incomeDate,"單季淨利／同季末權益；非年化"],
+  ["流動比率",f.currentRatio," 倍",f.balanceDate,"流動資產／流動負債；金融業口徑不同"],
+  ["負債比",quality.value?.debtRatioPct??f.debtRatio,"%",quality.date||f.balanceDate,"負債／總資產；需參照產業特性"],
+  ["營業現金流",cash.value??f.operatingCashFlow,"",cash.date||f.cashDate,"公開財報原始單位；可能為年初至當季累計"],
+  ["現金／稅前淨利",quality.value?.cashConversion," 倍",quality.date,"期間須一致，並非每股現金流"],
+  ["本益比",d.valuationLatest?.per," 倍",d.valuationLatest?.date,"估值指標，非股票合理價"]
+ ];
+ for(const [label,value,unit,date,note] of metrics){
+  const box=el("div","","financial-item");
+  const display=label==="營業現金流"&&typeof value==="number"?
+   (value>0?"正值":value<0?"負值":"零")+"（金額詳見來源）":nval(value,unit);
+  box.append(el("span",label),el("strong",display),
+   el("small",(date?"資料期："+date+" · ":"")+note));
+  target.append(box);
+ }
+}
+function renderComparison(d){
+ const target=$("compare-list");target.replaceChildren();
+ const comp=d.industryComparison;
+ $("compare-status").textContent=comp?.industry?
+  "同市場同產業："+comp.industry+"。PR 代表該項原始數值在有效同業樣本中的相對位置，不是買賣分數。":
+  comp?.reason||"目前同產業資料尚未完成入庫，PR 待查。";
+ if(!comp?.items?.length)return;
+ for(const item of comp.items){
+  const box=el("div","","compare-item");
+  box.append(el("span",item.label),el("strong",nval(item.value,item.unit)));
+  if(item.pr!==null&&Number.isFinite(item.pr))box.append(el("span","PR "+item.pr+" · 同業 "+item.sample+" 檔","pill"));
+  else box.append(el("small","PR 待查 · 有效同業 "+item.sample+" 檔"));
+  box.append(el("small",(item.date?"資料期："+item.date+" · ":"")+item.note));
+  target.append(box);
+ }
+}
 function present(d){
  current=d;$("result").hidden=false;
  $("market").textContent=d.market+" · "+d.stock;
@@ -41,6 +88,7 @@ function present(d){
  }
  $("warnings").textContent=d.sourceWarnings.length?"部分來源暫未取得，詳見「資料來源與更新說明」。":
   d.score?.technicalMode==="raw"?"技術面採未還原日行情；除權息可能影響長期指標。":"";
+ renderFinancials(d);renderComparison(d);
  setupKline($("kline"),$("kline-tip"),d.candles||[]);
  const parts=$("parts");parts.replaceChildren();
  for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
@@ -123,17 +171,60 @@ function present(d){
  for(const warning of d.sourceWarnings||[])sources.append(el("p","資料更新提示："+warning,"muted"));
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
 }
+const searchBox=$("ticker"),suggestions=$("suggestions");
+let pendingLookup=0,lookupTimer=null,lookupController=null;
+const setSearchStatus=text=>{$("status").textContent=text;$("status").hidden=!text;};
+const clearSuggestions=()=>{suggestions.replaceChildren();suggestions.hidden=true;};
+async function searchMatches(query){
+ const response=await fetch("/api/search?q="+encodeURIComponent(query));
+ if(!response.ok)throw Error("股票搜尋暫時不可用");
+ const data=await response.json();return data.results||[];
+}
+function showSuggestions(rows){
+ clearSuggestions();
+ for(const row of rows.slice(0,12)){
+  const option=el("button",row.stock+"  "+row.name+" · "+row.market,"suggestion");
+  option.type="button";option.setAttribute("role","option");
+  option.addEventListener("click",()=>{searchBox.value=row.stock;clearSuggestions();$("search").requestSubmit();});
+  suggestions.append(option);
+ }
+ suggestions.hidden=!suggestions.childElementCount;
+}
+searchBox.addEventListener("input",()=>{
+ const query=searchBox.value.trim();const seq=++pendingLookup;
+ clearTimeout(lookupTimer);if(lookupController)lookupController.abort();clearSuggestions();setSearchStatus("");
+ if(query.length<1)return;
+ lookupTimer=setTimeout(async()=>{
+  try{
+   lookupController=new AbortController();
+   const response=await fetch("/api/search?q="+encodeURIComponent(query),{signal:lookupController.signal});
+   if(!response.ok)throw Error("搜尋暫不可用");
+   const data=await response.json();
+   if(seq===pendingLookup&&searchBox.value.trim()===query)showSuggestions(data.results||[]);
+  }catch(error){if(error.name!=="AbortError"&&seq===pendingLookup)setSearchStatus("股票名冊暫無法查詢");}
+ },200);
+});
 $("search").addEventListener("submit",async e=>{
- e.preventDefault();const stock=$("ticker").value.trim();
- if(!/^\d{4,6}$/.test(stock)){$("status").textContent="請輸入正確股票代號。";return;}
- const btn=$("submit");btn.disabled=true;$("status").hidden=false;$("status").textContent="正在整理最新資料…";$("result").hidden=true;
+ e.preventDefault();let stock=searchBox.value.trim();
+ if(!/^[0-9]{4,6}$/.test(stock)){
+  try{
+   const rows=await searchMatches(stock);
+   if(!rows.length){setSearchStatus("找不到符合的股票名稱或代號");return;}
+   const exact=rows.filter(x=>x.name===stock||x.stock===stock);
+   if(exact.length===1)stock=exact[0].stock;
+   else if(rows.length===1)stock=rows[0].stock;
+   else{showSuggestions(rows);setSearchStatus("請從下方結果選擇股票");return;}
+  }catch(error){setSearchStatus(error.message);return;}
+ }
+ if(!/^[0-9]{4,6}$/.test(stock)){setSearchStatus("請選擇上市或上櫃股票");return;}
+ const btn=$("submit");btn.disabled=true;setSearchStatus("正在整理資料…");$("result").hidden=true;clearSuggestions();
  try{
   const response=await fetch("/api/analyze?stock="+encodeURIComponent(stock));
   const data=await response.json();
   if(!response.ok)throw Error(data.error||"資料取得失敗");
-  present(data);$("status").textContent="";$("status").hidden=true;
+  searchBox.value=stock;present(data);setSearchStatus("");
   $("result").scrollIntoView({behavior:"smooth",block:"start"});
- }catch(error){$("status").textContent="查詢未完成："+error.message;}finally{btn.disabled=false;}
+ }catch(error){setSearchStatus("查詢未完成："+error.message);}finally{btn.disabled=false;}
 });
 const showNumber=n=>Number.isFinite(n)?n.toLocaleString("zh-TW"):"—";
 const showMetric=(n,unit="")=>typeof n==="number"&&Number.isFinite(n)?showNumber(n)+unit:"待查";
@@ -173,7 +264,7 @@ function renderStockCard(stock){
   body.append(el("p",stock.valuationNote,"daily-reason"));
  right.append(el("strong",showMetric(stock.close," 元")),
   el("small",stock.detailVerified?"資料已交叉核對":"個股詳細資料待補"));
- const button=el("button","查看分析 →","daily-action");
+ const button=el("button","分析","daily-action");
  button.type="button";
  button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
  right.append(button);card.append(rank,body,right);return card;
@@ -200,6 +291,13 @@ if(hero.complete&&hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=
 const requested=new URLSearchParams(location.search).get("stock");
 if(requested&&/^\d{4,6}$/.test(requested)){$("ticker").value=requested;$("search").requestSubmit();}
 refreshDaily();
+fetch("/api/market-status").then(r=>r.json()).then(data=>{
+ const label=$("market-sync-label");
+ label.textContent=data.configured?
+  "公司名冊 "+(data.total||0)+" 檔｜財報 "+(data.finance||0)+" 檔｜技術 "+(data.technical||0)+" 檔｜籌碼 "+(data.chips||0)+" 檔。"+
+   (data.lastResearch?"最近深入分析："+data.lastResearch:"深入資料尚在分批建立"):
+  "資料庫尚未綁定；目前顯示官方初篩與個股即時查詢。";
+}).catch(()=>{$("market-sync-label").textContent="資料庫更新狀態暫時不可用";});
 let width=0;window.addEventListener("resize",()=>{
  const w=Math.round($("kline").getBoundingClientRect().width);
  if(current&&!$("result").hidden&&w!==width){width=w;setupKline($("kline"),$("kline-tip"),current.candles||[]);}
