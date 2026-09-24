@@ -10,15 +10,9 @@
 <section class="panel" id="daily-panel">
  <div class="card-head"><h2>每日觀察</h2></div>
  <p class="muted" id="daily-status" role="status" hidden></p>
- <details class="newbie-guide"><summary>新手先看這裡：3 個數字怎麼理解？</summary>
- <p><b>本益比（PE）</b>：股價相對每股盈餘的倍數。較低不一定便宜，虧損股也可能無法計算。</p>
- <p><b>股價淨值比（PB）</b>：股價相對每股帳面淨值的倍數，不同產業不能只比一個數字。</p>
- <p><b>殖利率</b>：股利相對股價的歷史比例，未來配息不保證，還要看獲利與現金流。</p>
- <p>綠色代表達到本平台的初步檢查門檻；橘色代表未達；灰色代表資料不足。這些標籤不等於買賣建議。</p>
- </details>
  <div id="daily-list" class="daily-list"></div>
  <details class="fineprint" id="market-sync"><summary>全市場資料更新狀態</summary><p id="market-sync-label" class="muted">尚未確認資料庫狀態</p></details>
- <details class="fineprint"><summary>名單怎麼選？</summary>從證交所與櫃買中心當日公開行情中的四位數股票逐檔做價格、成交金額與本益比／淨值比／殖利率初篩；兩市場必須是同一交易日才視為完整比較。首頁顯示每日觀察名單，價格低於 500 元；同一名單中對財報與相對估值完成核實者標示價值投資觀察訊號。每張卡顯示有通過、未通過、尚無資料的條件；「被低估」僅代表符合本站明確的相對估值與財務檢查，不等於內在價值或保證獲利。只有名單中的股票才進一步向 FinMind 取得財報、籌碼、技術資料；不等於市場全部個股已完成全面評分。停牌、無成交價、特殊證券或來源缺漏另列入統計，暫缺資料不補零、不保證任何獲利。</details>
+ <details class="fineprint"><summary>名單怎麼選？</summary>觀察名單分別呈現上市股票、上櫃股票及 ETF，所有價格皆可納入，不以 500 元為上限。股票以公司名冊、官方行情和估值進行初篩；ETF 使用獨立的基金類別，不將公司本益比、EPS 或負債比套用在基金上。上市／上櫃或 ETF 行情、財報與技術資料須依來源日期核對；未交易、資料尚未公布或特殊證券不冒充已完成分析。本站不提供保證報酬或買賣建議。</details>
 </section>
 <div id="result" hidden>
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
