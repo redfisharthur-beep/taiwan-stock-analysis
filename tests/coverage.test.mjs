@@ -28,7 +28,7 @@ test("all new financial metrics use actual dates and valid cash/debt and histori
  assert.equal(f.find(x=>x.name==="獲利品質與負債").score,7.2);
  assert.equal(f.find(x=>x.name==="EPS 與去年同季").score,8);
  assert.equal(chips.find(x=>x.name==="法人近五日淨買賣／成交量").value.ratioPct,5);
- assert.equal(chips.find(x=>x.name==="法人近五日淨買賣／成交量").score,15);
+ assert.equal(chips.find(x=>x.name==="法人近五日淨買賣／成交量").score,20);
  assert.equal(s.parts.technical.covered,30);assert.equal(s.coveredPoints,92);
  assert.equal(s.score,null);assert.equal(s.parts.news.covered,0);
 });
