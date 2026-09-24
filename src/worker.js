@@ -6,7 +6,7 @@ import {researchNews} from "./news.js";
 import {assessUndervaluation} from "./value.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
-import {hasMarketDB,saveUniverse,getMarketSummary,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
+import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
@@ -204,87 +204,34 @@ async function performScheduled(controller,env){
   if(!response.ok)throw Error("深入分析 HTTP "+response.status);
  }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error));}
 }
-// 每日單一名單：官方全市場估值先選五檔，再核對可取得的財報與歷史行情。
-// 免費 Worker 單次子請求目標：六份市場批次資料＋五檔各八份 FinMind，約 46 次。
-// 若 FinMind 或官方資料缺漏，依真實初篩資料顯示，但絕不冒充已完成 100 分評估。
-function formatDailyStocks(candidates,investigated,marketDate){
- return candidates.map((row,i)=>{
-  if(row.kind==="etf"){
-   return {rank:i+1,stock:row.stock,kind:"etf",name:row.name,market:row.market,
-    date:row.date,close:row.close,volume:row.volume,turnover:row.turnover,
-    screening:{checks:[]},checks:[],valuationFlag:"not_applicable",detailVerified:false};
-  }
-  const deep=investigated.get(row.stock)||null,validDeep=deep&&
-   deep.verification?.state==="一致"&&deep.official?.date===marketDate&&
-   deep.finmind?.date===marketDate;
-  const fs=validDeep?deep.score?.parts?.fundamental?.items||[]:[];
-  const eps=fs.find(x=>x.name==="EPS 與去年同季");
-  const cash=fs.find(x=>x.name==="營業現金流（初步）");
-  const leverage=fs.find(x=>x.name==="獲利品質與負債");
-  const checkNotes=[
-   {label:"EPS 為正",status:!validDeep||eps?.value?.eps===undefined?"unknown":eps.value.eps>0?"pass":"fail"},
-   {label:"營業現金流為正",status:!validDeep||typeof cash?.value!=="number"?"unknown":cash.value>0?"pass":"fail"},
-   {label:"財務負債初步檢查",status:!validDeep||leverage?.value?.debtRatioPct==null?
-    "unknown":leverage.value.debtRatioPct<=70?"pass":"fail"}];
-  const checks=[...row.screening.checks,...checkNotes];
-  const assessment=assessUndervaluation(row,validDeep?deep:null,marketDate);
-  const allKnown=checks.every(c=>c.status!=="unknown"),passAll=allKnown&&checks.every(c=>c.status==="pass");
-  return {rank:i+1,stock:row.stock,kind:"stock",name:row.name,market:row.market,date:row.date,
-   close:row.close,turnover:row.turnover,screening:row.screening,checks,
-   passedAll:passAll,criteriaMet:checks.filter(x=>x.status==="pass").length,
-   criteriaKnown:checks.filter(x=>x.status!=="unknown").length,
-   ...assessment,detailVerified:!!validDeep,observedPoints:validDeep?deep.score.observedPoints:null,
-   coveredPoints:validDeep?deep.score.coveredPoints:0,
-   parts:validDeep?Object.fromEntries(Object.entries(deep.score.parts).map(([k,v])=>
-    [k,{earned:v.earned,covered:v.covered,max:v.max}])):null,
-   reason:"上市櫃官方行情與估值初步篩選；財報待查者不標記被低估"};
- });
-}
-
+// Homepage lists only verified, fully covered results from the entire stored universe.
+// Never use an unscored price/valuation prescreen as an apparent top-score recommendation.
 async function computeDailyObservations(env){
- const universe=await scanOfficialUniverse();
- const listed=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="stock"&&x.market==="上市"),"value",5);
- const otc=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="stock"&&x.market==="上櫃"),"value",5);
- const etfs=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="etf"),"daily",5);
- const candidates=[...listed,...otc,...etfs];
- const marketComplete=universe.marketCount===2&&
-  universe.markets.every(m=>m.date===universe.marketDate&&m.registryAvailable);
- const base={ready:candidates.length>0,marketDate:universe.marketDate,
-  asOf:new Date().toISOString(),priceCeiling:null,
-  universe:{total:universe.universeCount,sameDate:universe.sameDateCount,
-   priced:universe.pricedCount,tradable:universe.tradableCount,
-   marketComplete,markets:universe.markets,kindCounts:universe.kindCounts,
-   scope:"官方當日行情：上市股票、上櫃股票、可辨認的 ETF，所有價格"},
-  markets:universe.markets,sourceWarnings:universe.warnings,
-  scope:"whole_official_daily_universe_three_product_groups",
-  analyzedCount:0,candidateCount:candidates.length,stocks:[]};
- if(!candidates.length)return {...base,reason:"上市、上櫃及 ETF 官方行情尚未形成可用觀察名單"};
- const shared={tdccRows:[],bulk:true,newsByMarket:{
-  "上市":{rows:[],error:"批次未逐檔核對重大訊息"},
-  "上櫃":{rows:[],error:"批次未逐檔核對重大訊息"}}};
- const investigated=new Map();
- if(env.FINMIND_TOKEN){
-  // Deep-dive only two companies per exchange to respect free Worker subrequest limits.
-  // All other listed, OTC and fund candidates remain visible using genuine official quotes.
-  for(const row of [...listed.slice(0,2),...otc.slice(0,2)]){
-   try{
-    const res=await analyze(row.stock,env,row,shared);
-    if(res.ok)investigated.set(row.stock,await res.json());
-   }catch(error){console.warn("daily research failed for",row.stock,String(error.message||error))}
-  }
- }
- const stocks=formatDailyStocks(candidates,investigated,universe.marketDate);
- return {...base,stocks,analyzedCount:investigated.size,
-  reason:marketComplete?"上市、上櫃和 ETF 已依官方行情分組比較；深入分析按個股查詢取得":
-   "部分市場或 ETF 報價資料不完整，僅列出本次實際核實的證券"};
+ if(!hasMarketDB(env))return {ready:false,stocks:[],etfs:[],analyzedCount:0,
+  reason:"尚未啟用全市場研究資料庫，沒有可核實的綜合分數；不以估值初篩冒充前五名。"};
+ const [summary,top]=await Promise.all([
+  getMarketSummary(env.MARKET_DB),getVerifiedTopFive(env.MARKET_DB)
+ ]);
+ const isComplete=summary.total>0&&summary.profiles===summary.total&&
+  summary.markets?.length===2&&summary.markets.every(m=>m.registryAvailable);
+ return {ready:top.stocks.length>0||top.etfs.length>0,
+  marketDate:summary.marketDate,asOf:new Date().toISOString(),
+  stocks:top.stocks,etfs:top.etfs,analyzedCount:summary.profiles,
+  eligibleStocks:top.eligibleStocks,eligibleETFs:top.eligibleETFs,
+  universe:{total:summary.total,profiles:summary.profiles,
+   fullCoverage:summary.fullCoverage,scannedAll:isComplete},
+  reason:!summary.total?"尚未完成上市與上櫃股票名冊同步。":
+   !isComplete?"目前僅顯示已取得完整且核實資料的股票；全市場逐檔研究仍在進行，非全市場最終前五名。":
+   top.stocks.length<5?"市場名冊已掃描，但完整且經核實的公司股票不足五檔。":
+   "依已核實且涵蓋100%的公司綜合分數排序；ETF僅依其獨立技術指標排序。"};
 }
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"whole_market_daily_prescreen_scheduled_research",sinopacConfigured:sinopacReady(env),
+  rankingMode:"verified_100_coverage_full_market_scores",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.18.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.19.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -330,7 +277,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.18.0");
+  const key=new Request(url.origin+"/api/observations?model=0.19.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
@@ -343,7 +290,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.18.0"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.19.0"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=isETFCandidate(stock)?
