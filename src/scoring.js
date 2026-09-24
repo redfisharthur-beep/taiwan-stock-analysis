@@ -1,60 +1,188 @@
-// v0.2 研究型分數：缺資料不視為 0，也不將未涵蓋的項目重新加權。
-export const WEIGHTS = { fundamental:50, news:10, chips:20, technical:20 };
+// 固定權重：基本 50、消息 10、籌碼 20、技術 20；缺值不視為 0，不重新加權。
+export const WEIGHTS={fundamental:50,news:10,chips:20,technical:20};
 const finite=x=>typeof x==="number"&&Number.isFinite(x);
-export const num=x=>{ if(x===null||x===undefined||x===""||x==="--"||x==="-")return null; const n=Number(String(x).replaceAll(",","").trim());return Number.isFinite(n)?n:null };
 const round=x=>Math.round(x*100)/100;
-export function movingAvg(rows,n,key="close"){const a=rows.slice(-n).map(r=>num(r[key]));return a.length===n&&a.every(finite)?a.reduce((x,y)=>x+y,0)/n:null}
-export function rsi(closes,period=14){if(closes.length<period+1)return null;let g=0,l=0;for(let i=closes.length-period;i<closes.length;i++){const d=closes[i]-closes[i-1];g+=Math.max(0,d);l+=Math.max(0,-d)} if(g+l===0)return 50;return l===0?100:100-100/(1+g/l)}
-function ema(values,n){if(values.length<n)return [];let initial=values.slice(0,n).reduce((a,b)=>a+b,0)/n;const out=[initial],alpha=2/(n+1);for(let i=n;i<values.length;i++)out.push(values[i]*alpha+out.at(-1)*(1-alpha));return out}
-export function indicators(prices){const rows=[...prices].sort((a,b)=>a.date.localeCompare(b.date));if(rows.length<60||rows.some(r=>!finite(num(r.close))||num(r.close)<=0))return null;const closes=rows.map(r=>num(r.close)),latest=rows.at(-1),ma20=movingAvg(rows,20),ma60=movingAvg(rows,60),rs=rsi(closes),fast=ema(closes,12),slow=ema(closes,26);const line=slow.map((v,i)=>fast[i+14]-v),signal=ema(line,9),prev=line.at(-2)-signal.at(-2),now=line.at(-1)-signal.at(-1),todayVol=num(latest.volume),averageVol=movingAvg(rows.slice(0,-1),20,"volume");return {date:latest.date,close:closes.at(-1),ma20:round(ma20),ma60:round(ma60),rsi:round(rs),macd:round(line.at(-1)),signal:round(signal.at(-1)),volumeRatio:averageVol>0&&todayVol!==null?round(todayVol/averageVol):null,macdCross:prev<=0&&now>0?"golden":prev>=0&&now<0?"death":"none"}}
-const item=(name,max,score,value,date,source,note)=>({name,max,score:finite(score)?round(Math.max(0,Math.min(max,score))):null,value:value??null,date:date??null,source:source??null,note:note??""});
-// 僅使用與行情時間相近且已發布的資料；過舊或不具可比性的數據不給覆蓋分。
-const dayDiff=(a,b)=>a&&b&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(a)&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(b)?
-  Math.round((Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/86400000):null;
-const fresh=(marketDate,dataDate,days)=>{const age=dayDiff(marketDate,dataDate);return age!==null&&age>=0&&age<=days};
-export function scoreStock({prices=[],revenues=[],financials=[],institutional=[],official=null,valuation=[],cashFlows=[],margin=[],holding=null,newsResearch=null}){
- const tech=indicators(prices), latest=prices.at(-1)||null, lastRev=[...revenues].sort((a,b)=>a.date.localeCompare(b.date)).at(-1), earlier=lastRev&&revenues.find(r=>Number(r.revenue_year)===Number(lastRev.revenue_year)-1&&Number(r.revenue_month)===Number(lastRev.revenue_month));
- const yoy=lastRev&&earlier&&num(earlier.revenue)>0?((num(lastRev.revenue)/num(earlier.revenue))-1)*100:null;
- const epsRows=financials.filter(r=>String(r.type).toLowerCase()==="eps"&&finite(num(r.value))).sort((a,b)=>a.date.localeCompare(b.date));const eps=epsRows.at(-1)||null;
- const recent=[...institutional].filter(r=>r.date&&finite(num(r.buy))&&finite(num(r.sell))).sort((a,b)=>a.date.localeCompare(b.date)),dates=[...new Set(recent.map(r=>r.date))].slice(-5);
- const flows=dates.length>=5?recent.filter(r=>dates.includes(r.date)).reduce((sum,r)=>sum+(num(r.buy)-num(r.sell)),0):null;
- const marketDate=latest?.date??null;
- const valuations=[...valuation].filter(r=>num(r.per)>0&&fresh(marketDate,r.date,10)).sort((a,b)=>a.date.localeCompare(b.date));
- const val=valuations.at(-1)||null,pe=val?num(val.per):null;
- const operating=[...cashFlows].filter(r=>r.type==="CashFlowsFromOperatingActivities"&&finite(num(r.value))&&fresh(marketDate,r.date,600)).sort((a,b)=>a.date.localeCompare(b.date));
- const cash=operating.filter(r=>fresh(marketDate,r.date,180)).at(-1)||null;
- const lastYearCash=cash&&operating.find(r=>r.date===(String(Number(cash.date.slice(0,4))-1)+cash.date.slice(4)))||null;
- const cashValue=cash?num(cash.value):null;
- const cashScore=cashValue===null?null:cashValue<=0?1:lastYearCash&&num(lastYearCash.value)>0&&cashValue>num(lastYearCash.value)?10:7;
- const margins=[...margin].filter(r=>finite(num(r.financing))&&finite(num(r.previousFinancing))&&fresh(marketDate,r.date,10)).sort((a,b)=>a.date.localeCompare(b.date));
- const marginLatest=margins.at(-1)||null;
- const financeChange=marginLatest?num(marginLatest.financing)-num(marginLatest.previousFinancing):null;
- const financeChangePct=marginLatest&&num(marginLatest.previousFinancing)>0?financeChange/num(marginLatest.previousFinancing)*100:null;
- const marginScore=financeChange===null?null:financeChange<0?(financeChangePct!==null&&financeChangePct<=-2?5:4):financeChange===0?2:1;
- const largeShare=holding?.share;
- const deltaShare=holding?.change;
- const concentrationScore=typeof largeShare==="number"&&largeShare>=0&&largeShare<=100?
-  deltaShare!==null&&deltaShare!==undefined&&deltaShare>=2&&largeShare>=50?5:
-  deltaShare!==null&&deltaShare!==undefined&&deltaShare>=1&&largeShare>=35?4:
-  largeShare>=35?3:largeShare>=20?2:1:null;
- const matchedEvent=name=>newsResearch?.items?.find(x=>x.name===name)||null;
- const officialEvent=matchedEvent("重大公告與事件"),independentEvent=matchedEvent("獨立新聞來源");
+export const num=x=>{if(x===null||x===undefined||x===""||x==="--"||x==="-")return null;
+ const n=Number(String(x).replaceAll(",","").trim());return Number.isFinite(n)?n:null};
+const age=(now,date)=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(now||"")&&
+ /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date||"")?
+ Math.round((Date.parse(now+"T00:00:00Z")-Date.parse(date+"T00:00:00Z"))/86400000):null;
+const fresh=(now,date,days)=>{const n=age(now,date);return n!==null&&n>=0&&n<=days};
+const part=(name,max,score,value,date,source,note)=>({
+ name,max,score:finite(score)?round(Math.max(0,Math.min(max,score))):null,
+ value:value??null,date:date??null,source:source??null,note:note??""});
+const recent=(rows,date,days)=>[...rows].filter(r=>r&&fresh(date,r.date,days))
+ .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null;
+export function movingAvg(rows,n,key="close"){const a=rows.slice(-n).map(r=>num(r[key]));
+ return a.length===n&&a.every(finite)?a.reduce((x,y)=>x+y,0)/n:null}
+export function rsi(closes,n=14){if(closes.length<n+1)return null;let gain=0,loss=0;
+ for(let i=closes.length-n;i<closes.length;i++){const diff=closes[i]-closes[i-1];
+ gain+=Math.max(0,diff);loss+=Math.max(0,-diff)}
+ return gain+loss===0?50:loss===0?100:100-100/(1+gain/loss)}
+function ema(a,n){if(a.length<n)return [];let first=a.slice(0,n).reduce((x,y)=>x+y,0)/n;
+ const out=[first],factor=2/(n+1);
+ for(let i=n;i<a.length;i++)out.push(a[i]*factor+out.at(-1)*(1-factor));return out}
+export function indicators(prices){
+ const rows=[...prices].sort((a,b)=>a.date.localeCompare(b.date));
+ if(rows.length<61||rows.some(r=>!finite(num(r.close))||num(r.close)<=0))return null;
+ const close=rows.map(r=>num(r.close)),latest=rows.at(-1),ma20=movingAvg(rows,20),ma60=movingAvg(rows,60);
+ const fast=ema(close,12),slow=ema(close,26),macd=slow.map((v,i)=>fast[i+14]-v);
+ const signal=ema(macd,9),crossNow=macd.at(-1)-signal.at(-1),crossBefore=macd.at(-2)-signal.at(-2);
+ const volumes=rows.slice(-21,-1).map(r=>num(r.volume));
+ const ratio=volumes.length===20&&volumes.every(x=>x!==null&&x>=0)&&volumes.some(x=>x>0)&&num(latest.volume)!==null?
+ num(latest.volume)/(volumes.reduce((a,b)=>a+b,0)/20):null;
+ const returns=close.slice(-21).map((v,i,a)=>i?v/a[i-1]-1:null).slice(1);
+ const mean=returns.reduce((a,b)=>a+b,0)/returns.length;
+ const volatility=Math.sqrt(returns.reduce((s,x)=>s+(x-mean)**2,0)/returns.length)*Math.sqrt(252)*100;
+ let peak=0,drawdown=0;
+ for(const v of close.slice(-60)){peak=Math.max(peak,v);drawdown=Math.max(drawdown,(peak-v)/peak*100)}
+ return {date:latest.date,close:close.at(-1),ma20:round(ma20),ma60:round(ma60),
+  rsi:round(rsi(close)),macd:round(macd.at(-1)),signal:round(signal.at(-1)),
+  macdCross:crossBefore<=0&&crossNow>0?"golden":crossBefore>=0&&crossNow<0?"death":"none",
+  volumeRatio:ratio===null?null:round(ratio),volatility20:round(volatility),maxDrawdown60:round(drawdown)};
+}
+function quarterValue(rows,date,type){return rows.find(r=>r.date===date&&r.type===type)?.value??null}
+function financialQuality(financials,cashFlows,balance,marketDate){
+ const cash=recent(cashFlows.filter(r=>r.type==="CashFlowsFromOperatingActivities"&&finite(num(r.value))),
+  marketDate,180);
+ const liabilities=recent(balance.filter(r=>r.type==="Liabilities"&&num(r.value)>=0),marketDate,180);
+ const assets=liabilities?balance.find(r=>r.date===liabilities.date&&r.type==="Assets"&&num(r.value)>0):null;
+ const borrowRatio=assets&&liabilities?num(liabilities.value)/num(assets.value)*100:null;
+ // Within the same cash-flow statement/reporting period, compare operating cash flow to pre-tax income.
+ const beforeTax=cash?quarterValue(cashFlows,cash.date,"NetIncomeBeforeTax"):null;
+ const conversion=cash&&num(beforeTax)>0?num(cash.value)/num(beforeTax):null;
+ const valid=conversion!==null&&finite(borrowRatio)&&borrowRatio>=0&&borrowRatio<=100&&
+   fresh(marketDate,liabilities.date,180);
+ return {date:valid?cash.date:null,debtDate:valid?liabilities.date:null,
+  debtRatio:valid?round(borrowRatio):null,cashConversion:valid?round(conversion):null,
+  score:valid?Math.min(5,conversion>=1?5:conversion>=.7?4:conversion>=.4?2:0)+
+   (borrowRatio<=30?5:borrowRatio<=50?4:borrowRatio<=70?2:0):null};
+}
+function institutionalRatio(institutional,prices,marketDate){
+ const p=[...prices].filter(x=>x.date<=marketDate).sort((a,b)=>a.date.localeCompare(b.date)).slice(-5);
+ if(p.length!==5||!fresh(marketDate,p.at(-1).date,4))return null;
+ let net=0,total=0;
+ for(const day of p){
+  if(!(num(day.volume)>0))return null;
+  const records=institutional.filter(r=>r.date===day.date&&num(r.buy)!==null&&num(r.sell)!==null);
+  if(!records.length)return null;
+  net+=records.reduce((sum,r)=>sum+num(r.buy)-num(r.sell),0);total+=num(day.volume);
+ }
+ if(total<=0)return null;
+ return {date:p.at(-1).date,net:round(net),volume:round(total),ratio:round(net/total*100)};
+}
+export function scoreStock({
+ prices=[],adjusted=[],revenues=[],financials=[],institutional=[],valuation=[],
+ cashFlows=[],balance=[],margin=[],official=null,holding=null,newsResearch=null
+}={}){
+ const raw=[...prices].sort((a,b)=>a.date.localeCompare(b.date)),latest=raw.at(-1)||null;
+ const date=latest?.date||null;
+ // Never compare adjusted prices with official raw closing prices. Only use matching dates for technicals.
+ const adj=[...adjusted].filter(r=>r.date<=date&&num(r.close)>0).sort((a,b)=>a.date.localeCompare(b.date));
+ const cleanAdj=adj.length>=61&&adj.at(-1).date===date&&adj.every(r=>raw.some(p=>p.date===r.date))?
+  adj.map(r=>({...r,volume:raw.find(p=>p.date===r.date)?.volume??null})):null;
+ const tech=cleanAdj?indicators(cleanAdj):null;
+ const lastRev=recent(revenues.filter(r=>num(r.revenue)>0),date,90);
+ const yearAgo=lastRev&&revenues.find(r=>Number(r.revenue_year)===Number(lastRev.revenue_year)-1&&
+  Number(r.revenue_month)===Number(lastRev.revenue_month));
+ const yoy=lastRev&&num(yearAgo?.revenue)>0?(num(lastRev.revenue)/num(yearAgo.revenue)-1)*100:null;
+ const epsRows=financials.filter(r=>String(r.type).toLowerCase()==="eps"&&finite(num(r.value)))
+  .sort((a,b)=>a.date.localeCompare(b.date));
+ const eps=recent(epsRows,date,180),prevEps=eps&&epsRows.find(r=>r.date===String(Number(eps.date.slice(0,4))-1)+eps.date.slice(4));
+ const epsValue=eps?num(eps.value):null;
+ const epsGrowth=epsValue!==null&&num(prevEps?.value)>0?(epsValue/num(prevEps.value)-1)*100:null;
+ const epsScore=epsValue===null?null:epsValue<=0?0:epsGrowth===null?5:epsGrowth>=20?10:epsGrowth>=0?8:4;
+ const operating=recent(cashFlows.filter(r=>r.type==="CashFlowsFromOperatingActivities"&&finite(num(r.value))),date,180);
+ const oldCash=operating&&cashFlows.find(r=>r.date===String(Number(operating.date.slice(0,4))-1)+operating.date.slice(4)&&
+  r.type==="CashFlowsFromOperatingActivities");
+ const cashValue=operating?num(operating.value):null;
+ const cashScore=cashValue===null?null:cashValue<=0?1:num(oldCash?.value)>0&&cashValue>num(oldCash.value)?10:7;
+ const quality=financialQuality(financials,cashFlows,balance,date);
+ const perRows=[...valuation].filter(r=>num(r.per)>0&&r.date<=date&&fresh(date,r.date,410))
+  .sort((a,b)=>a.date.localeCompare(b.date));
+ const currentPER=recent(perRows,date,10);
+ // Relative valuation only against own 12-month distribution; no cross-industry score is inferred.
+ const pastPER=perRows.filter(r=>r.date<=currentPER?.date&&fresh(currentPER.date,r.date,370));
+ const perPercentile=currentPER&&pastPER.length>=60?
+   round(pastPER.filter(r=>num(r.per)<=num(currentPER.per)).length/pastPER.length*100):null;
+ const perScore=perPercentile===null?null:perPercentile<=20?10:perPercentile<=40?8:
+  perPercentile<=60?6:perPercentile<=80?3:1;
+ const institutional=institutionalRatio(institutional,raw,date);
+ const flowScore=institutional===null?null:institutional.ratio>=4?10:institutional.ratio>=2?8:
+  institutional.ratio>0?6:institutional.ratio===0?5:institutional.ratio>=-2?3:1;
+ const trend=holding?.trend;
+ const holderScore=!trend?null:trend.risingWeeks===2&&trend.changeTwoWeeks>=1?5:
+  trend.risingWeeks===2?4:trend.fallingWeeks===0?3:trend.changeTwoWeeks>=0?2:1;
+ const margins=[...margin].filter(r=>finite(num(r.financing))&&finite(num(r.previousFinancing))&&fresh(date,r.date,10))
+  .sort((a,b)=>a.date.localeCompare(b.date));
+ const marginLatest=margins.at(-1)||null,marginChange=marginLatest?
+  num(marginLatest.financing)-num(marginLatest.previousFinancing):null;
+ const marginPct=marginLatest&&num(marginLatest.previousFinancing)>0?
+  marginChange/num(marginLatest.previousFinancing)*100:null;
+ const marginScore=marginChange===null?null:marginChange<0?(marginPct!==null&&marginPct<=-2?5:4):
+  marginChange===0?2:1;
+ const matched=name=>newsResearch?.items?.find(x=>x.name===name)||null;
+ const event=matched("重大公告與事件"),report=matched("獨立新聞來源");
  const fundamental=[
- item("單月營收年增率",15,yoy===null?null:yoy>=20?15:yoy>=10?12:yoy>=0?9:yoy>=-10?5:1,yoy===null?null:round(yoy)+"%",lastRev?.date,"FinMind","同月份與前一年比較"),
- item("單季 EPS",15,eps===null?null:num(eps.value)>0?num(eps.value)>=5?15:10:0,eps?num(eps.value):null,eps?.date,"FinMind","EPS 絕對值僅供初步觀察，未作同產業比較"),
- item("營業現金流（初步）",10,cashScore,cashValue,cash?.date,cash?"FinMind":"",cash?"最近一期營業現金流；正數獲7分，同期年增再加3分，尚未納入完整負債比。":"最近180天無可用營業現金流資料"),
- item("估值／本益比",10,pe===null?null:pe<=12?10:pe<=20?7:pe<=35?4:1,pe,val?.date,val?"FinMind":"",val?"採最近10日內的 PER；尚未做產業比較，虧損公司不適用。":"最近10日無可用正數 PER，未給分")];
- const news=[item("重大公告與事件",5,officialEvent?.score??null,officialEvent?.value??null,
- officialEvent?.date,officialEvent?.source,officialEvent?.note||"尚無完成跨來源查證的明確重大事件；沒有新聞不等於沒有風險"),
- item("獨立新聞來源",3,independentEvent?.score??null,independentEvent?.value??null,
- independentEvent?.date,independentEvent?.source,independentEvent?.note||"中央社、MoneyDJ、Reuters 等原始授權新聞尚未完成同事件核對"),
- item("產業事件",2,null,null,null,null,"尚無跨來源確認的產業事件，暫不給分")];
- const chips=[item("近五交易日法人淨買賣",10,flows===null?null:flows>0?8:flows===0?5:2,flows,dates.at(-1),"FinMind","各類法人合計；尚未按流通股數標準化"),item("400張以上股權集中度",5,concentrationScore,
- holding?{largeHolderPct:holding.share,weeklyChangePct:holding.change}:null,
- holding?.date,holding?.source||null,
- holding?.note||"尚未從 TDCC 官方每週股權分散表取得有效資料，暫不給分"),item("融資餘額變化",5,marginScore,financeChange,marginLatest?.date,marginLatest?"FinMind":"",marginLatest?"以單日融資餘額增減作初步觀察，不代表買賣訊號；融券資訊僅保留原始數據。":"最近10日沒有可用融資融券資料")];
- const technical=[item("均線趨勢",8,tech===null?null:tech.close>tech.ma20&&tech.ma20>tech.ma60?8:tech.close>tech.ma20?5:2,tech?{close:tech.close,ma20:tech.ma20,ma60:tech.ma60}:null,tech?.date,"FinMind","未調整除權息／減資"),item("RSI(14)",4,tech===null?null:tech.rsi>=45&&tech.rsi<=65?4:tech.rsi>70||tech.rsi<30?1:2,tech?.rsi,tech?.date,"FinMind","極端 RSI 不直接等於買賣訊號"),item("MACD",4,tech===null?null:tech.macd>tech.signal?4:1,tech?{macd:tech.macd,signal:tech.signal,cross:tech.macdCross}:null,tech?.date,"FinMind","歷史資料未進行公司行動調整"),item("量價",4,tech?.volumeRatio===null||!tech?null:tech.volumeRatio>=1.2&&tech.close>tech.ma20?4:tech.volumeRatio<0.5?1:2,tech?.volumeRatio,tech?.date,"FinMind","以近二十交易日成交股數作比較")];
- const groups={fundamental,news,chips,technical};const parts=Object.fromEntries(Object.entries(groups).map(([key,items])=>[key,{max:WEIGHTS[key],earned:round(items.reduce((s,i)=>s+(i.score??0),0)),covered:items.reduce((s,i)=>s+(i.score===null?0:i.max),0),items}]));
- const covered=Object.values(parts).reduce((s,p)=>s+p.covered,0),earned=round(Object.values(parts).reduce((s,p)=>s+p.earned,0));
- return {score:covered===100?earned:null,observedPoints:earned,coveredPoints:covered,coveragePercent:covered,complete:covered===100,parts,indicators:tech,latestPriceDate:latest?.date||null,disclaimer:"僅供資料研究；缺資料不補 0 分、不重新加權。分數不是報酬率或投資建議。"};
+  part("單月營收年增率",10,yoy===null?null:yoy>=20?10:yoy>=10?8:yoy>=0?6:yoy>=-10?3:1,
+   yoy===null?null:round(yoy)+"%",lastRev?.date,"FinMind","比較去年同月；逾90天不計分"),
+  part("EPS 與去年同季",10,epsScore,eps?{eps:epsValue,yoyPct:epsGrowth===null?null:round(epsGrowth)}:null,
+   eps?.date,"FinMind","以單季EPS及同季年增計分；配股／分割後歷史值可能不可比"),
+  part("營業現金流（初步）",10,cashScore,cashValue,operating?.date,operating?"FinMind":null,
+   "營業現金流正負及同年同期，單位為原始財報金額"),
+  part("獲利品質與負債",10,quality.score,quality.score===null?null:
+   {cashConversion:quality.cashConversion,debtRatioPct:quality.debtRatio},quality.date,
+   quality.score===null?null:"FinMind","同一期現金流／稅前淨利比與負債／總資產；金融業應使用不同模型"),
+  part("估值／本益比",10,perScore,currentPER?{per:num(currentPER.per),
+    oneYearPercentile:perPercentile}:null,currentPER?.date,
+   currentPER?"FinMind":null,"近12個月個股自身本益比分位；須至少60筆有效歷史，未作跨產業比較")
+ ];
+ const news=[
+  part("重大公告與事件",5,event?.score??null,event?.value??null,event?.date,event?.source,
+   event?.note||"尚無經跨來源確認的重大事件"),
+  part("獨立新聞來源",3,report?.score??null,report?.value??null,report?.date,report?.source,
+   report?.note||"原始獨立媒體事件尚未完成核實"),
+  part("產業事件",2,null,null,null,null,"產業事件尚無可核實的資料")
+ ];
+ const chips=[
+  part("法人近五日淨買賣／成交量",10,flowScore,institutional?
+   {netShares:institutional.net,totalShares:institutional.volume,ratioPct:institutional.ratio}:null,
+   institutional?.date,institutional?"FinMind":null,"同五個交易日法人買賣超占總成交股數比例；缺任一天資料即不計分"),
+  part("400張以上持股三週趨勢",5,holderScore,trend?
+   {holderPct:holding.share,weeklyChangesPct:trend.weeklyChanges,
+    changeTwoWeeksPct:trend.changeTwoWeeks}:null,holding?.date,holding?.source,
+   holding?.note||"需TDCC三期連續週資料；單次高持股不給分"),
+  part("融資餘額變化",5,marginScore,marginChange,marginLatest?.date,marginLatest?"FinMind":null,
+   "單日融資餘額變化；不代表下一日股價方向")
+ ];
+ const techNote=tech?"使用FinMind還原價計算技術指標；K線另顯示原始價格":
+  "未取得同交易日且至少61筆完整還原價，不用原價冒充可比技術分析";
+ const riskScore=tech?tech.volatility20<=25&&tech.maxDrawdown60<=10?5:
+  tech.volatility20<=35&&tech.maxDrawdown60<=15?4:
+  tech.volatility20<=45&&tech.maxDrawdown60<=22?3:1:null;
+ const technical=[
+  part("均線趨勢",6,tech===null?null:tech.close>tech.ma20&&tech.ma20>tech.ma60?6:tech.close>tech.ma20?4:1,
+   tech?{close:tech.close,ma20:tech.ma20,ma60:tech.ma60}:null,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+  part("RSI(14)",3,tech===null?null:tech.rsi>=45&&tech.rsi<=65?3:
+   tech.rsi>70||tech.rsi<30?1:2,tech?.rsi,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+  part("MACD",3,tech===null?null:tech.macd>tech.signal?3:1,
+   tech?{macd:tech.macd,signal:tech.signal,cross:tech.macdCross}:null,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+  part("量價",3,tech?.volumeRatio===null||!tech?null:
+   tech.volumeRatio>=1.2&&tech.close>tech.ma20?3:tech.volumeRatio<.5?1:2,
+   tech?.volumeRatio,tech?.date,"FinMind TaiwanStockPriceAdj",techNote),
+  part("波動幅度與60日最大回撤",5,riskScore,tech?
+   {annualizedVolatility20Pct:tech.volatility20,maxDrawdown60Pct:tech.maxDrawdown60}:null,
+   tech?.date,"FinMind TaiwanStockPriceAdj",
+   tech?"20日報酬波動年化與60日歷史峰值回撤；僅風險觀察，不預測未來":techNote)
+ ];
+ const groups={fundamental,news,chips,technical};
+ const parts=Object.fromEntries(Object.entries(groups).map(([key,items])=>
+  [key,{max:WEIGHTS[key],earned:round(items.reduce((sum,i)=>sum+(i.score??0),0)),
+   covered:items.reduce((sum,i)=>sum+(i.score===null?0:i.max),0),items}]));
+ const coveredPoints=Object.values(parts).reduce((sum,p)=>sum+p.covered,0);
+ const observedPoints=round(Object.values(parts).reduce((sum,p)=>sum+p.earned,0));
+ return {score:coveredPoints===100?observedPoints:null,observedPoints,coveredPoints,
+  coveragePercent:coveredPoints,complete:coveredPoints===100,parts,indicators:tech,
+  latestPriceDate:date,metrics:{quality,perPercentile,per:currentPER?num(currentPER.per):null},
+  disclaimer:"資料涵蓋率與實際得分分開；缺資料不補0分、不重新加權，分數不代表未來報酬。"};
 }
