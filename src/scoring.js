@@ -94,7 +94,7 @@ function institutionalRatio(institutional,prices,marketDate){
 }
 export function scoreStock({
  prices=[],adjusted=[],revenues=[],financials=[],institutional=[],valuation=[],
- cashFlows=[],balance=[],margin=[],official=null,holding=null,newsResearch=null,brokerTechnicalPrices=[]
+ cashFlows=[],balance=[],margin=[],official=null,newsResearch=null,brokerTechnicalPrices=[]
 }={}){
  const raw=[...prices].sort((a,b)=>a.date.localeCompare(b.date)),latest=raw.at(-1)||null;
  const date=latest?.date||null;
@@ -145,9 +145,6 @@ export function scoreStock({
  const flowStats=institutionalRatio(institutional,raw,date);
  const flowScore=flowStats===null?null:flowStats.ratio>=4?10:flowStats.ratio>=2?8:
   flowStats.ratio>0?6:flowStats.ratio===0?5:flowStats.ratio>=-2?3:1;
- const trend=holding?.trend;
- const holderScore=!trend?null:trend.risingWeeks===2&&trend.changeTwoWeeks>=1?5:
-  trend.risingWeeks===2?4:trend.fallingWeeks===0?3:trend.changeTwoWeeks>=0?2:1;
  const margins=[...margin].filter(r=>finite(num(r.financing))&&finite(num(r.previousFinancing))&&fresh(date,r.date,10))
   .sort((a,b)=>a.date.localeCompare(b.date));
  const marginLatest=margins.at(-1)||null,marginChange=marginLatest?
@@ -188,16 +185,12 @@ export function scoreStock({
   newsLatest?.date||null,newsLatest?.source||null,
   newsLatest?"已核實事件："+(newsDelta>0?"加分":"扣分"):"無已核實加減分事件"),score:newsDelta}];
  const chips=[
-  part("法人近五日淨買賣／成交量",15,flowScore===null?null:round(flowScore*1.5),flowStats?
+  part("法人近五日淨買賣／成交量",20,flowScore===null?null:round(flowScore*2),flowStats?
    {netShares:flowStats.net,totalShares:flowStats.volume,ratioPct:flowStats.ratio,
     tradingDates:flowStats.tradingDates,delayedSessions:flowStats.delayedTradingSessions}:null,
    flowStats?.date,flowStats?"FinMind":null,
    "以最近五個連續已公布法人資料的交易日計算；若成交行情較新最多容許兩個交易日落差，絕不補造未公告日期"),
-  part("400張以上持股三週趨勢",8,holderScore===null?null:round(holderScore*1.6),trend?
-   {holderPct:holding.share,weeklyChangesPct:trend.weeklyChanges,
-    changeTwoWeeksPct:trend.changeTwoWeeks}:null,holding?.date,holding?.source,
-   holding?.note||"需TDCC三期連續週資料；單次高持股不給分"),
-  part("融資餘額變化",7,marginScore===null?null:round(marginScore*1.4),marginChange,marginLatest?.date,marginLatest?"FinMind":null,
+  part("融資餘額變化",10,marginScore===null?null:round(marginScore*2),marginChange,marginLatest?.date,marginLatest?"FinMind":null,
    "單日融資餘額變化；不代表下一日股價方向")
  ];
  const techNote=technicalMode==="adjusted"?
@@ -237,6 +230,7 @@ export function scoreStock({
  // Clamp the final presentation to the standard 0–100 scale.
  const score=complete?round(Math.max(0,Math.min(100,observedPoints+newsDelta))):null;
  return {score,baseScore:complete?observedPoints:null,newsDelta,
+  scoreModelVersion:"chips_flow20_margin10_v1",
   observedPoints,coveredPoints,
   coveragePercent:coveredPoints,complete,parts,indicators:tech,
   latestPriceDate:date,technicalMode,
@@ -247,5 +241,5 @@ export function scoreStock({
       brokerCount:brokerRows.length,brokerDate:brokerRows.at(-1)?.date??null,
       alignedCount:aligned.length,reason:techNote}
   },
-  disclaimer:"基本面40、技術30、籌碼30；三者完整才顯示總分。消息僅依已核實公告加減，不補造缺值。"};
+  disclaimer:"基本面40、技術30、籌碼30（法人20＋融資10）；適用資料齊全才顯示總分。消息僅依已核實公告加減，不補造缺值。"};
 }
