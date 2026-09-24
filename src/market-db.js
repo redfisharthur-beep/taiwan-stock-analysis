@@ -28,7 +28,7 @@ export async function saveUniverse(db,universe){
 }
 // Counts are scoped to the latest successfully saved official two-market snapshot.
 export async function getMarketSummary(db){
- const [company,profile,state]=await Promise.all([
+ const [company,profile,state,attemptState]=await Promise.all([
   db.prepare(`SELECT COUNT(*) AS total,
    SUM(CASE WHEN close>0 AND quote_date IS NOT NULL THEN 1 ELSE 0 END) AS eligible,
    SUM(CASE WHEN close IS NULL OR close<=0 THEN 1 ELSE 0 END) AS noQuote,
@@ -48,8 +48,7 @@ export async function getMarketSummary(db){
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullETFTechnical,
    SUM(CASE WHEN COALESCE(c.industry,'')!='ETF' AND c.close>0 AND p.market_date=c.quote_date
      AND json_extract(p.score_json,'$.scoreModelVersion')='chips_flow20_margin10_v1'
-     AND json_extract(p.score_json,'$.scoreModelVersion')='chips_flow20_margin10_v1'
-   AND json_extract(p.score_json,'$.coveragePercent')=100
+     AND json_extract(p.score_json,'$.coveragePercent')=100
      AND json_type(p.score_json,'$.score') IN ('integer','real')
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullCoverage,
    SUM(CASE WHEN c.industry='ETF' AND c.close>0 AND p.market_date=c.quote_date
@@ -59,8 +58,11 @@ export async function getMarketSummary(db){
    MAX(p.fetched_at) AS lastResearch
    FROM companies c JOIN market_profiles p ON p.stock=c.stock
    WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
-  db.prepare("SELECT value,updated_at FROM sync_state WHERE key='universe'").first()]);
- let original=null;try{original=state?.value?JSON.parse(state.value):null}catch{}
+  db.prepare("SELECT value,updated_at FROM sync_state WHERE key='universe'").first(),
+  db.prepare("SELECT value,updated_at FROM sync_state WHERE key='universe_last_attempt'").first()]);
+ let original=null,attempt=null;
+ try{original=state?.value?JSON.parse(state.value):null}catch{}
+ try{attempt=attemptState?.value?JSON.parse(attemptState.value):null}catch{}
  const total=company?.total||0,profiles=profile?.profiles||0;
  return {configured:true,total,eligible:company?.eligible||0,noQuote:company?.noQuote||0,
   etf:company?.etf||0,eligibleETFs:company?.eligibleETFs||0,
@@ -73,6 +75,7 @@ export async function getMarketSummary(db){
   chips:profile?.chips||0,lastResearch:profile?.lastResearch||null,
   marketDate:original?.date||null,markets:original?.markets||[],
   warnings:original?.warning||[],updatedAt:state?.updated_at||null,
+  lastUniverseAttempt:attempt,
   complete:!!total&&profiles===total,stockScope:"上市、上櫃公司及可辨認ETF"};
 }
 // Only complete, same-session, source-verified research may appear in homepage results.
