@@ -76,6 +76,15 @@ function present(d){
   row.append(link,el("small"," · "+item.date+"（媒體報導，官方待核對）"));ev.append(row);
  }
  if(!ev.children.length)ev.append(el("p","最近沒有可顯示的已取得公告；不代表公司沒有消息。","muted"));
+ const discovery=news.discovery||{articles:[],status:"not_checked"};
+ if(discovery.articles?.length){
+   ev.append(el("p","其他財經報導線索（僅找到標題與原始連結，尚未交叉核實）：","muted"));
+   for(const article of discovery.articles.slice(0,5)){
+    const row=el("div","","source-line"),link=el("a",article.title);
+    link.href=article.url;link.target="_blank";link.rel="noopener noreferrer";
+    row.append(link,el("small"," · "+article.publisher+" · "+article.date+" · 未核實"));ev.append(row);
+   }
+ }
  const checked=$("news-source-status");checked.replaceChildren();
  for(const source of (news.checked||[])){
   const name=source.name==="Goodinfo! 台灣股市資訊網"?"Goodinfo（本頁僅行情核對）":source.name;
