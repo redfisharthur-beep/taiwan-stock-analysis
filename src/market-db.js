@@ -47,7 +47,9 @@ export async function getMarketSummary(db){
      AND json_extract(p.score_json,'$.parts.technical.covered')=30
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullETFTechnical,
    SUM(CASE WHEN COALESCE(c.industry,'')!='ETF' AND c.close>0 AND p.market_date=c.quote_date
-     AND json_extract(p.score_json,'$.coveragePercent')=100
+     AND json_extract(p.score_json,'$.scoreModelVersion')='chips_flow20_margin10_v1'
+     AND json_extract(p.score_json,'$.scoreModelVersion')='chips_flow20_margin10_v1'
+   AND json_extract(p.score_json,'$.coveragePercent')=100
      AND json_type(p.score_json,'$.score') IN ('integer','real')
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullCoverage,
    SUM(CASE WHEN c.industry='ETF' AND c.close>0 AND p.market_date=c.quote_date
@@ -162,10 +164,10 @@ export async function getMarketPage(db,{market="all",query="",page=1,pageSize=30
   return {stock:r.stock,name:r.name,market:r.market,kind:isETF?"etf":"stock",
    price:r.close,quoteDate:r.quoteDate,analyzedAt:r.analyzedAt,
    researchDate:r.researchDate,coverage:isETF?null:covered,
-   score:!isETF&&verified&&covered===100&&r.researchDate===r.quoteDate?score?.score??null:null,
+   score:!isETF&&verified&&score?.scoreModelVersion==='chips_flow20_margin10_v1'&&covered===100&&r.researchDate===r.quoteDate?score?.score??null:null,
    technicalCoverage:isETF?score?.parts?.technical?.covered??0:null,
    status:r.error?"error":!r.analyzedAt?"pending":
-    r.researchDate!==r.quoteDate?"stale":isETF?"analyzed":verified&&covered===100?"complete":"partial",
+    r.researchDate!==r.quoteDate?"stale":isETF?"analyzed":verified&&score?.scoreModelVersion==="chips_flow20_margin10_v1"&&covered===100?"complete":"partial",
    error:r.error?String(r.error).slice(0,100):null};
  })};
 }
@@ -267,8 +269,9 @@ export async function saveResearch(db,company,clean,body){
   numeric(x.close),numeric(x.volume),"FinMind")));
  const latestStmt=[eps?.date,cash?.date,quality?.date].filter(Boolean).sort().at(-1)||null;
  const technicalDate=s.indicators?.date||null;
- const chipsDate=stats.institutionalRatio!==null&&stats.marginChange!==null&&
-  body.holding?.trend&&body.holding?.date?body.holding.date:null;
+ const chipItems=['法人近五日淨買賣／成交量','融資餘額變化'].map(name=>item(chips,name));
+ const chipsDate=chipItems.every(x=>x?.score!==null&&x?.score!==undefined&&x?.date)?
+  chipItems.map(x=>x.date).sort().at(-1):null;
  await db.prepare(`INSERT INTO market_profiles
  (stock,market_date,financial_period,technical_date,chips_date,score_json,metrics_json,candles_json,dataset_health_json,fetched_at)
  VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(stock) DO UPDATE SET
