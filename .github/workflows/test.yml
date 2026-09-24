@@ -16,12 +16,15 @@ jobs:
       - run: node --check src/scoring.js
       - run: node --check public/app.js
       - run: node --check public/chart.js
-      - run: node --check src/ranking.js
       - run: node --check src/holding.js
       - run: node --check src/news.js
       - run: node --check src/value.js
+      - run: node --check src/market-db.js
+      - run: node --check src/fundamentals.js
+      - run: node --check src/industry.js
       - run: node --check src/sinopac.js
       - run: npm test
+      - run: python -c "import sqlite3; c=sqlite3.connect(\":memory:\"); c.executescript(open(\"migrations/0001_market.sql\", encoding=\"utf-8\").read()); print(\"D1 schema syntax OK\")"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
