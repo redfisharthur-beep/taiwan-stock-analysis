@@ -15,4 +15,6 @@ jobs:
       - run: node --check src/providers.js
       - run: node --check src/scoring.js
       - run: node --check public/app.js
+      - run: node --check public/chart.js
+      - run: node --check src/ranking.js
       - run: npm test
