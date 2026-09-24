@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {privateBrokerHistory,reconcileBrokerHistory} from "../src/sinopac.js";
+import {privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "../src/sinopac.js";
 import {scoreStock} from "../src/scoring.js";
 
 const env={SJ_GATEWAY_URL:"https://taiwan-stock-analysis-qxy2.onrender.com",SJ_BRIDGE_TOKEN:"C".repeat(40)};
@@ -43,4 +43,14 @@ test("invalid broker price or future trading date fails closed",async()=>{
   headers:{"Content-Type":"application/json"}
  }));
  assert.equal(bad.status,"invalid_data");
+});
+
+test("independent same-day raw technical indicators cross-check without adding points",()=>{
+ const a={date:"2026-09-23",ma20:100,ma60:105,rsi:54,macd:1.2,
+  signal:1.0,volatility20:26,maxDrawdown60:11};
+ const consistent=compareRawTechnicalIndicators(a,{...a});
+ assert.equal(consistent.state,"consistent");assert.equal(consistent.checked,7);
+ const different=compareRawTechnicalIndicators(a,{...a,rsi:80});
+ assert.equal(different.state,"differences");assert.deepEqual(different.divergentMetrics,["rsi"]);
+ assert.equal(compareRawTechnicalIndicators(a,{...a,date:"2026-09-22"}).state,"not_comparable");
 });
