@@ -54,3 +54,18 @@ test("requested long boilerplate is absent from both HTML and stock-card rendere
   assert.equal(html.includes(phrase)||js.includes(phrase),false,phrase);
  }
 });
+
+test("stock research shows observed points separately from coverage and splits EPS/Yoy into rows",()=>{
+ assert.match(js,/目前已評得分/);
+ assert.match(js,/資料涵蓋/);
+ assert.match(js,/綜合分數/);
+ assert.match(js,/尚無完整資料/);
+ assert.match(js,/const summaryLines=item=>/);
+ assert.match(js,/item\.name\+"："+key\+" "/);
+ assert.match(js,/score-highlight-line/);
+ assert.match(css,/\.score-highlight-line\{/);
+ assert.doesNotMatch(js,/box\.append\(el\("span",label\),el\("strong",display\),\s*el\("small",note\)\)/);
+ assert.match(js,/400張以上持股三週趨勢：/);
+ assert.match(js,/近期重點新聞/);
+ assert.match(js,/source\.status==="other_market"\|\|source\.status==="not_connected"/);
+});
