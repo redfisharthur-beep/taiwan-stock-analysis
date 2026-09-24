@@ -97,6 +97,12 @@ export async function saveResearch(db,company,clean,body){
   quality=item(fundamental,"獲利品質與負債"),revenue=item(fundamental,"單月營收年增率");
  const stats={marketDate:date,verified:body.verification?.state==="一致"&&body.official?.date===date,
   financialInsights:body.financialInsights||null,technicalDate:s.indicators?.date||null,
+  incomeDate:body.financialInsights?.incomeDate||null,
+  grossMargin:body.financialInsights?.grossMargin??null,
+  operatingMargin:body.financialInsights?.operatingMargin??null,
+  netMargin:body.financialInsights?.netMargin??null,
+  quarterlyRoe:body.financialInsights?.quarterlyRoe??null,
+  currentRatio:body.financialInsights?.currentRatio??null,
   per:body.valuationLatest?.per??company.per??null,
   pbr:body.valuationLatest?.pbr??company.pbr??null,dividendYield:body.valuationLatest?.dividendYield??company.dividendYield??null,
   valuationDate:body.valuationLatest?.date??company.valuationDate??null,
@@ -160,12 +166,12 @@ export async function recordResearchFailure(db,stock,message){
 }
 export async function getIndustryPeers(db,company,period,limit=600){
  if(!company?.industry||!period)return [];
- const result=await db.prepare(`SELECT c.stock,c.industry,c.name,p.metrics_json,p.market_date
+ const result=await db.prepare(`SELECT c.stock,c.market,c.industry,c.name,p.metrics_json,p.market_date
  FROM companies c JOIN market_profiles p ON p.stock=c.stock
  WHERE c.industry=? AND c.market=? AND p.financial_period IS NOT NULL AND
  p.market_date>=? ORDER BY c.stock LIMIT ?`)
  .bind(company.industry,company.market,new Date(Date.parse(period+"T00:00:00Z")-7*86400000).toISOString().slice(0,10),limit).all();
- return (result.results||[]).flatMap(x=>{try{return [{...x,metrics:JSON.parse(x.metrics_json)}]}catch{return []}});
+ return (result.results||[]).flatMap(x=>{try{return [{...x,marketDate:x.market_date,metrics:JSON.parse(x.metrics_json)}]}catch{return []}});
 }
 export async function syncHoldingSnapshots(db,marketDate){
  const rows=await getHoldingRows();
