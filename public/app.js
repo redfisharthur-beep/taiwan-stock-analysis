@@ -286,7 +286,7 @@ async function refreshDaily(){
  const status=$("daily-status"),list=$("daily-list");
  list.replaceChildren();status.hidden=true;status.textContent="";
  try{
-  const response=await fetch("/api/top5");
+  const response=await fetch("/api/observations");
   const d=await response.json();
   if(!response.ok)throw Error(d.reason||"資料服務暫不可用");
   const rows=d.stocks||[];
