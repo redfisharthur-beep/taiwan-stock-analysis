@@ -164,12 +164,10 @@ function present(d){
    source.status==="reference_only"?"非獨立消息證據":"尚未連結授權新聞";
   sourceRow(checked,name+"："+status,source.url);
  }
- if(d.holdingStatus&&d.holdingStatus.code!=="verified"){
-  const tdccReason=el("p","集保持股："+d.holdingStatus.reason,"muted");
-  $("news-source-status").append(tdccReason);
- }
  const sources=$("sources");sources.replaceChildren();
  const health=$("data-health");health.replaceChildren();
+ if(d.holdingStatus&&d.holdingStatus.code!=="verified")
+  health.append(el("p","集保持股："+d.holdingStatus.reason,"muted"));
  const broker=d.brokerVerification||{state:"not_configured"};
  const brokerLabels={matched:"永豐完整日線與官方／FinMind 同日收盤一致（不重複給分）",
   mismatch:"永豐完整日線與其他來源同日價格有差異，保留官方及FinMind原始分數",
