@@ -20,4 +20,12 @@ jobs:
       - run: node --check src/holding.js
       - run: node --check src/news.js
       - run: node --check src/value.js
+      - run: node --check src/sinopac.js
       - run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s tests -v
+        working-directory: sinopac_gateway
+      - run: python -m py_compile main.py core.py
+        working-directory: sinopac_gateway
