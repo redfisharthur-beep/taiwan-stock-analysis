@@ -22,6 +22,11 @@ button.outline{background:#e9f0e9;color:#486c58}
 .newbie-guide summary,.fineprint summary,.sources summary,.score-detail summary{cursor:pointer;font-weight:700;color:#466e52}
 .newbie-guide p{font-size:16px;line-height:1.7;margin:10px 0 0}
 .daily-list{display:grid;grid-template-columns:1fr;gap:10px}
+.daily-group{min-width:0;margin:4px 0 14px}
+.daily-group-title{font-size:23px;margin:8px 0 13px;color:#354e41}
+.daily-group-list{display:grid;grid-template-columns:1fr;gap:10px}
+.daily-group:nth-child(2) .daily-item{border-color:#dddfe8;background:#fbfaff}
+.daily-group:nth-child(3) .daily-item{border-color:#e5ddcf;background:#fffcf4}
 .daily-item{display:grid;grid-template-columns:40px minmax(0,1fr) 135px;gap:15px;align-items:start;border:1px solid #dfebe3;border-radius:16px;background:#fffefa;padding:19px}
 .daily-rank{border-radius:10px;background:#eaf0e9;color:#406950;padding:9px 0;text-align:center;font-size:16px;font-weight:700}
 .daily-name{font-size:25px;font-weight:700;color:#2b4336;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
