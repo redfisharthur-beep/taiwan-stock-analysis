@@ -22,10 +22,10 @@
 </section>
 <div id="result" hidden>
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
- <div id="verify" class="notice"></div><div id="overview" class="overview"></div><div id="warnings" class="muted"></div></section>
- <section class="panel" id="comparison-panel"><h3>同產業指標比較</h3><p id="compare-status" class="muted">需要同產業、同報告期且有足夠有效樣本，才會顯示 PR。</p><div id="compare-list" class="compare-list"></div></section>
- <section class="panel" id="financial-panel"><h3>基本面詳解</h3><p class="muted">以實際公告及財報期間為準；缺值保留待查，不把累計現金流當單季。</p><div id="financial-grid" class="financial-grid"></div></section>
- <section class="panel" id="chart-panel"><div class="card-head"><h3>K 線走勢</h3><span class="pill">原始日 K</span></div><p class="muted">K 線顯示真實成交價；技術指標優先採還原價，若尚未更新則改用未還原行情並明確標示。</p><canvas id="kline" width="800" height="350" role="img" aria-label="近70交易日日K線及成交量"></canvas><div class="muted" id="kline-tip" role="status"></div></section>
+ <div id="verify" class="notice" hidden></div><div id="overview" class="overview"></div><div id="warnings" class="muted" hidden></div></section>
+ <section class="panel" id="comparison-panel"><h3>同產業指標比較</h3><p id="compare-status" class="muted" hidden></p><div id="compare-list" class="compare-list"></div></section>
+ <section class="panel" id="financial-panel"><h3>基本面詳解</h3><div id="financial-grid" class="financial-grid"></div></section>
+ <section class="panel" id="chart-panel"><div class="card-head"><h3>K 線走勢</h3><span class="pill">原始日 K</span></div><canvas id="kline" width="800" height="350" role="img" aria-label="近70交易日日K線及成交量"></canvas><div class="muted" id="kline-tip" role="status"></div></section>
  <section class="scoring" id="parts" aria-label="四面向評分詳情"></section>
  <details class="panel sources" id="evidence-panel"><summary>消息來源與查證紀錄</summary>
   <p class="muted" id="news-status">尚未完成事件交叉核對。</p>
