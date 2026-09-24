@@ -146,11 +146,11 @@ function present(d){
  if(!ev.children.length)ev.append(el("p","最近沒有可顯示的已取得公告；不代表公司沒有消息。","muted"));
  const discovery=news.discovery||{articles:[],status:"not_checked"};
  if(discovery.articles?.length){
-   ev.append(el("h4","重點新聞 · 原文連結（標題線索，尚未交叉核實）"));
+   ev.append(el("h4","近期重點新聞 · 原文連結（公開標題線索，尚未交叉核實）"));
    for(const article of discovery.articles.slice(0,5)){
     const row=el("div","","source-line"),link=el("a",article.title);
     link.href=article.url;link.target="_blank";link.rel="noopener noreferrer";
-    row.append(link,el("small"," · "+article.publisher+" · "+article.date+" · 發現日期／未核實"));ev.append(row);
+    row.append(link,el("small"," · "+article.publisher+" · 首次發現 "+article.date+" · 非全文核實"));ev.append(row);
    }
  }
  const checked=$("news-source-status");checked.replaceChildren();
@@ -158,7 +158,8 @@ function present(d){
   if(source.status==="other_market"||source.status==="not_connected")continue;
   const name=source.name;
   const status=source.status==="checked"?"已讀取官方公告":
-   source.status==="provided"?"已收到授權新聞資料":
+   source.status==="provided"?"已取得授權新聞資料":
+   source.status==="discovered"?"已找到公開新聞標題與原文連結（未取得全文授權）":
    source.status==="unavailable"?"暫無法讀取":
    source.status==="other_market"?"另一市場，非本股來源":
    source.status==="reference_only"?"非獨立消息證據":"尚未連結授權新聞";
