@@ -45,3 +45,59 @@ export async function privateBrokerSnapshot(stock,env,fetcher=fetch){
  }catch{return {status:"unavailable",message:"無法連線到 Render，若使用免費主機可能正在休眠"}}
  finally{clearTimeout(timer)}
 }
+
+// Automatic, server-side EOD history comparison. No personal account/trade fields are used.
+export async function privateBrokerHistory(stock,marketDate,env,fetcher=fetch){
+ if(!sinopacReady(env))return {status:"not_configured"};
+ if(!/^[0-9]{4}$/.test(stock)||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(marketDate))
+  return {status:"invalid_request"};
+ let host;
+ try{host=new URL(String(env.SJ_GATEWAY_URL))}catch{return {status:"bad_config"}}
+ if(host.protocol!=="https:"||host.username||host.password||host.port||host.search||host.hash||
+   host.pathname!=="/"||!host.hostname.endsWith(".onrender.com"))
+  return {status:"bad_config"};
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),50000);
+ try{
+  const u=host.origin+"/internal/history/"+stock+"?date_to="+marketDate;
+  const res=await fetcher(u,{redirect:"error",signal:ctrl.signal,
+   headers:{"Accept":"application/json","X-Bridge-Token":env.SJ_BRIDGE_TOKEN}});
+  if(!res.ok)return {status:"unavailable",httpStatus:res.status};
+  if(!/application\/json/i.test(res.headers.get("content-type")||""))return {status:"invalid_data"};
+  const data=await res.json();
+  if(data.stock!==stock||data.kind!=="unadjusted_completed_intraday_aggregate"||
+    data.through!==marketDate||!Array.isArray(data.bars)||data.bars.length>90)
+   return {status:"invalid_data"};
+  const seen=new Set(),bars=[];
+  for(const row of data.bars){
+   if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(row.date)||row.date>marketDate||
+      seen.has(row.date)||!Number.isInteger(row.minuteBars)||row.minuteBars<1||
+      ![row.open,row.high,row.low,row.close].every(v=>typeof v==="number"&&Number.isFinite(v)&&v>0)||
+      row.high<Math.max(row.open,row.close,row.low)||row.low>Math.min(row.open,row.close))
+     return {status:"invalid_data"};
+   seen.add(row.date);
+   bars.push({date:row.date,open:row.open,high:row.high,low:row.low,close:row.close,
+    // Shioaji minute volumes may use a different unit from FinMind Trading_Volume.
+    // Never plug broker minute volumes into price-volume scoring without unit verification.
+    volume:null});
+  }
+  bars.sort((a,b)=>a.date.localeCompare(b.date));
+  return {status:bars.length?"ok":"empty",bars,through:marketDate,
+   methodology:"Shioaji completed intraday minutes aggregated into unadjusted daily bars"};
+ }catch{return {status:"unavailable"}}
+ finally{clearTimeout(timer)}
+}
+export function reconcileBrokerHistory(broker,official,finmindPrices){
+ if(broker?.status!=="ok")return {state:broker?.status||"not_checked",reason:"永豐歷史日線尚未取得或未完成"};
+ if(!official?.date||!Number.isFinite(official.close))
+  return {state:"official_unavailable",reason:"無法取得官方當日收盤價"};
+ const b=broker.bars.find(row=>row.date===official.date);
+ const f=finmindPrices.find(row=>row.date===official.date);
+ if(!b)return {state:"different_date",reason:"永豐沒有同一已完成交易日的日線；沒有比較不同日期"};
+ if(!f||!Number.isFinite(f.close))
+  return {state:"finmind_missing",reason:"FinMind 尚無相同日期的原始行情；未視為三方一致"};
+ const eq=(x,y)=>Math.abs(x-y)<0.0001;
+ return {state:eq(b.close,official.close)&&eq(f.close,official.close)?"matched":"mismatch",
+  date:official.date,reason:eq(b.close,official.close)&&eq(f.close,official.close)?
+   "官方、FinMind 原始收盤與永豐完整日線同日收盤一致；不重複加分":
+   "同日收盤出現差異；請檢查集合競價、分K完整度及來源欄位，官方價不被券商覆蓋"};
+}
