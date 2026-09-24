@@ -79,14 +79,31 @@ async function analyze(stock,env,override=null,shared=null){
  const verification=reconcile(official,clean.prices);
  let holding=shared?.cachedHolding||null,newsResearch=null;
  const marketDate=clean.prices.at(-1)?.date;
+ let holdingStatus={code:"not_checked",reason:"尚未開始核對持股週期"};
+ if(holding?.trend)holdingStatus={code:"verified",reason:"已取得三期集保持股紀錄"};
  if(!holding){try{const tdccRows=shared?.tdccRows??await getHoldingRows();
    holding=concentration(tdccRows,stock,marketDate);
- }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}}
+   holdingStatus=holding?.trend?{code:"verified",reason:"TDCC 來源包含三期有效週資料"}:
+    holding?{code:"latest_only",reason:"TDCC 最新資料已取得，但可核對的連續三週持股紀錄不足"}:
+    {code:"no_current_record",reason:"TDCC 當期資料沒有此股票可核對的持股級距"};
+ }catch(error){
+   holdingStatus={code:"tdcc_unavailable",reason:"TDCC 當期資料讀取失敗："+String(error.message||error)};
+   warnings.push(holdingStatus.reason);
+ }}
  if(!holding?.trend&&!shared?.bulk&&!shared?.skipArchive){
   try{
-   const archive=await archivedHoldingForStock(stock,marketDate);
+   const archive=await archivedHoldingForStock(stock,marketDate,fetch,{
+    onStatus:status=>{holdingStatus=status}
+   });
    if(archive?.trend)holding=archive;
-  }catch(error){warnings.push("TDCC 公開歷史備份暫不可用："+String(error.message||error))}
+  }catch(error){
+   holdingStatus={code:"archive_error",reason:"公開三週備份查詢失敗："+String(error.message||error)};
+   warnings.push(holdingStatus.reason);
+  }
+ }
+ if(!holding?.trend){
+  holding={...(holding||{}),trend:null,
+   note:"持股趨勢待查："+holdingStatus.reason};
  }
  try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
    shared?.bulk||shared?.skipNews?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
@@ -124,7 +141,7 @@ async function analyze(stock,env,override=null,shared=null){
  const links={twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
  const responseBody={stock,name:official?.name||"",market:official?.market||"尚未辨認",
   asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
-  score,candles,holding,newsResearch,datasetHealth,financialInsights,
+  score,candles,holding,holdingStatus,newsResearch,datasetHealth,financialInsights,
   brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason,
    indicatorReview:brokerVerification.indicatorReview||null,
    useInPublicScoring:env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&brokerVerification.state==="matched"},
