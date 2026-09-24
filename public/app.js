@@ -80,16 +80,26 @@ function present(d){
  $("price-date").textContent="行情 "+d.finmind.date;
  $("verify").hidden=d.verification?.state==="一致";
  if(!$("verify").hidden)message($("verify"),"行情來源待核對："+d.verification.state,d.verification.state==="不一致");
- const stats=$("overview");stats.replaceChildren();
- for(const [name,value] of [["綜合分數",d.score.score===null?"未完成":d.score.score+" 分"],
-  ["已評子項小計",d.score.observedPoints+" 分"],["資料涵蓋權重",d.score.coveredPoints+" / 100"]]){
+ const isFund=d.kind==="etf";
+ $("comparison-panel").hidden=isFund;
+ $("financial-panel").hidden=isFund;
+ $("evidence-panel").hidden=isFund;
+ if(!isFund){renderFinancials(d);renderComparison(d)}
+  const stats=$("overview");stats.replaceChildren();
+ for(const [name,value] of (isFund?[
+  ["產品類別","ETF"],["分析範圍","市場價量"],["收盤日期",d.finmind.date]
+ ]:[
+  ["綜合分數",d.score.score===null?"未完成":d.score.score+" 分"],
+  ["已評子項小計",d.score.observedPoints+" 分"],["資料涵蓋權重",d.score.coveredPoints+" / 100"]
+ ])){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
  }
  $("warnings").textContent="";$("warnings").hidden=true;
- renderFinancials(d);renderComparison(d);
  setupKline($("kline"),$("kline-tip"),d.candles||[]);
  const parts=$("parts");parts.replaceChildren();
- for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
+ if(isFund){
+  parts.append(groupCard("ETF 價量技術",d.score.parts.technical));
+ }else for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
   parts.append(groupCard(label,d.score.parts[key]));
  const news=d.newsResearch||{status:"unverified",events:[],checked:[]};
  $("news-status").textContent=news.status==="corroborated_event"?
@@ -242,24 +252,29 @@ function renderStockCard(stock){
   body=el("div"),right=el("div","","daily-score"),screen=stock.screening||{};
  const name=el("div","","daily-name");
  name.append(document.createTextNode((stock.name||"股票")+" "+stock.stock));
- if(stock.valuationFlag==="undervalued"){
+ if(stock.kind!=="etf"&&stock.valuationFlag==="undervalued"){
   const badge=el("span","被低估","value-tag");badge.title="符合本站相對估值及已取得財報條件，並非內在價值估算或買入建議";
   name.append(badge);
  }
- body.append(name,el("div",stock.market+" · 最近收盤 "+showMetric(stock.close," 元"),"daily-sub"));
+ body.append(name,el("div",stock.kind==="etf"?"ETF":stock.market,"daily-sub"));
  const tags=el("div","","daily-parts");
- tags.append(el("span","本益比 "+showMetric(screen.per," 倍")),
-  el("span","淨值比 "+showMetric(screen.pbr," 倍")),
-  el("span","殖利率 "+showMetric(screen.dividendYield,"%")));
+ if(stock.kind==="etf"){
+  tags.append(el("span","成交量 "+showMetric(stock.volume," 股")),
+   el("span","行情 "+(stock.date||"待查")));
+ }else{
+  tags.append(el("span","本益比 "+showMetric(screen.per," 倍")),
+   el("span","淨值比 "+showMetric(screen.pbr," 倍")),
+   el("span","殖利率 "+showMetric(screen.dividendYield,"%")));
+ }
  body.append(tags);
- if(stock.financials){
+ if(stock.kind!=="etf"&&stock.financials){
   const f=stock.financials;
   const summary=el("p","財報："+(f.reportPeriod||"報告期未明")+
    "｜EPS "+showMetric(f.eps," 元")+"｜營業現金流 "+(f.operatingCashFlow===null?"待查":f.operatingCashFlow>0?"為正":f.operatingCashFlow===0?"持平":"為負")+
    "｜負債比 "+showMetric(f.debtRatioPct,"%"),"daily-reason");
   body.append(summary);
  }
- addChecks(body,stock.checks||[]);
+ if(stock.kind!=="etf")addChecks(body,stock.checks||[]);
  // A missing valuation flag is never replaced with an unsupported positive label.
  right.append(el("strong",showMetric(stock.close," 元")));
  const button=el("button","分析","daily-action");
@@ -276,7 +291,19 @@ async function refreshDaily(){
   if(!response.ok)throw Error(d.reason||"資料服務暫不可用");
   const rows=d.stocks||[];
   if(!rows.length){status.textContent=d.reason||"暫無符合價格與成交條件的股票。";status.hidden=false;return;}
-  for(const stock of rows)list.append(renderStockCard(stock));
+  for(const [title,predicate] of [
+   ["上市股票",stock=>stock.kind!=="etf"&&stock.market==="上市"],
+   ["上櫃股票",stock=>stock.kind!=="etf"&&stock.market==="上櫃"],
+   ["ETF",stock=>stock.kind==="etf"]
+  ]){
+   const group=rows.filter(predicate);
+   if(!group.length)continue;
+   const section=el("section","","daily-group");
+   section.append(el("h3",title,"daily-group-title"));
+   const items=el("div","","daily-group-list");
+   for(const stock of group)items.append(renderStockCard(stock));
+   section.append(items);list.append(section);
+  }
   // Incomplete official feeds remain in API diagnostics; do not repeat long boilerplate above cards.
  }catch(error){status.textContent="每日觀察暫時無法更新："+error.message;status.hidden=false;}
 }
