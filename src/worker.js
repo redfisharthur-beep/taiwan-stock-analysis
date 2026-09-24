@@ -101,14 +101,14 @@ async function analyze(stock,env,override=null,shared=null){
 async function performScheduled(controller,env){
  if(!hasMarketDB(env))return;
  const db=env.MARKET_DB,cron=controller.cron||"";
- if(cron==="0 11 * * 1-5"){
+ if(cron==="0 11 * * MON-FRI"){
   const universe=await scanOfficialUniverse({priceCeiling:500});
   if(universe.marketCount!==2||universe.markets.some(x=>!x.registryAvailable||x.date!==universe.marketDate))
    throw Error("兩市場名冊或日期不完整，保留先前已核實的資料庫行情");
   await saveUniverse(db,universe);
   return;
  }
- if(cron==="30 11 * * 5"){
+ if(cron==="30 11 * * FRI"){
   const summary=await getMarketSummary(db);
   if(summary.marketDate)await syncHoldingSnapshots(db,summary.marketDate);
   return;
