@@ -97,7 +97,14 @@ function present(d){
   not_checked:"本次尚未執行永豐歷史資料核對"};
  health.append(el("p","永豐 Shioaji 後端自動核對："+(brokerLabels[broker.state]||"核對未完成")+
    (broker.useInPublicScoring?" · 已允許使用核對後券商日線作技術資料後備":
-    " · 無券商行情公開再展示授權時不把私人行情帶入公開計分"),"muted"));
+    " · 未核准公開再展示時不把私人券商行情帶入公開計分"),"muted"));
+ if(broker.indicatorReview){
+  const check=broker.indicatorReview;
+  health.append(el("p","永豐技術指標交叉核對："+(
+   check.state==="consistent"?"同日同價格口徑，已核對 "+check.matched+" 項指標一致":
+   check.state==="differences"?"已核對 "+check.checked+" 項，其中 "+check.matched+" 項在容許誤差內一致；請查看差異":
+   check.reason||"價格口徑不同，不能直接比較")+"。"+(check.reason||""),"muted"));
+ }
  const mode=d.score?.technicalMode||"unavailable";
  health.append(el("p","技術分析資料："+(mode==="adjusted"?"使用還原價":
   mode==="raw"?"使用FinMind未還原日行情（除權息可能影響指標）":
