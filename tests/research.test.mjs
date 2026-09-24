@@ -18,7 +18,8 @@ test("wrong ticker, stale date or missing tiers cannot fabricate concentration",
 test("official disclosure alone not sufficient for independently corroborated sentiment",()=>{
  const official=parseDisclosures([{"公司代號":"2330","主旨 ":"公告本公司取得重大訂單","發言日期":"1150924"}],
  "2330","2026-09-24","MOPS","https://openapi.twse.com.tw");
- assert.equal(official.length,1);assert.equal(scoreNews(corroborate(official,[],"2330")).status,"unverified");
+ assert.equal(official.length,1);assert.equal(scoreNews(corroborate(official,[],"2330")).status,"official_event_only");
+ assert.equal(scoreNews(corroborate(official,[],"2330")).items[0].score,2);
 });
 test("matching independent origin and event kind can be corroborated",()=>{
  const official=parseDisclosures([{"公司代號":"2330","主旨":"公告本公司取得重大訂單","發言日期":"1150924"}],
@@ -33,7 +34,8 @@ test("syndicated or source-spoofed pieces do not create independent news scores"
  "2330","2026-09-24","MOPS","https://openapi.twse.com.tw");
  const article={stock:"2330",publisher:"中央社",originalPublisher:"Reuters 路透社",title:"公告取得重大訂單",
  url:"https://example.com/item",eventType:"order_won",publishedAt:"2026-09-24"};
- assert.equal(scoreNews(corroborate(official,[article],"2330")).status,"unverified");
+ assert.equal(scoreNews(corroborate(official,[article],"2330")).status,"official_event_only");
+ assert.equal(scoreNews(corroborate(official,[article],"2330")).items.find(x=>x.name==="獨立新聞來源"),undefined);
 });
 const metric=(name,score,value)=>({name,score,value,max:10,date:"2026-06-30"});
 const make=(stock,per,pbr,yieldPct,quality=8)=>({stock,name:"測試公司",market:"上市",
