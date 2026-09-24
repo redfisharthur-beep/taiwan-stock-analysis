@@ -4,7 +4,7 @@ import {getHoldingRows,concentration} from "./holding.js";
 import {researchNews} from "./news.js";
 import {assessUndervaluation} from "./value.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
-import {buildPeerComparison} from "./industry.js";
+import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
 import {hasMarketDB,saveUniverse,getMarketSummary,searchSavedStocks,getSavedCompany,getSavedProfile,getDailySaved,claimNextCompany,saveResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
@@ -276,6 +276,14 @@ export default {async fetch(request,env,ctx){
    const res=await analyze(stock,env);
    if(res.ok){
     const payload=await res.clone().json();
+    // 不依賴 D1：直接取同日官方全市場批次估值，顯示可驗證的同產業 PE/PB/殖利率 PR。
+    // 其餘財報、技術、籌碼仍依個股真實資料分析，不能由估值表推測。
+    if(!hasMarketDB(env)){
+     try{
+      const official=await scanOfficialUniverse({priceCeiling:500});
+      payload.industryComparison=buildOfficialIndustryComparison(stock,official);
+     }catch(error){payload.industryComparison={items:[],reason:"官方同業估值暫不可用，PR 待查"};}
+    }
     if(hasMarketDB(env)){
      try{
       const company=await getSavedCompany(env.MARKET_DB,stock);
