@@ -32,8 +32,8 @@ async function analyze(stock,env,override=null,shared=null){
    holding=concentration(tdccRows,stock,marketDate);
  }catch(error){warnings.push("TDCC 股權分散資料暫不可用："+String(error.message||error))}
  try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
-   shared?.bulk?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null}:env,
-   shared?.newsByMarket?.[official?.market||override?.market]);}
+   shared?.bulk?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
+   shared?.newsByMarket?.[official?.market||override?.market],official?.name||override?.name||"");}
  catch(error){warnings.push("重大訊息核對暫未完成："+String(error.message||error))}
  const score=scoreStock({...clean,official,holding,newsResearch});
  if(verification.state!=="一致"||official?.date!==clean.prices.at(-1)?.date)score.score=null;
