@@ -80,7 +80,7 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
     const stock=String(raw.SecuritiesCompanyCode??raw["公司代號"]??raw.Code??"").trim();
     if(!/^[0-9]{4}$/.test(stock)||stock.startsWith("00"))continue;
     listed.set(stock,{name:String(raw.CompanyAbbreviation??raw["公司簡稱"]??raw.CompanyName??raw["公司名稱"]??"").trim(),
-      industry:String(raw["產業別"]??raw["產業類別"]??raw.Industry??raw.IndustryName??"").trim()||null});
+      industry:String(raw["產業別"]??raw["產業類別"]??raw.Industry??raw.IndustryName??raw.IndustryCode??raw.IndustryType??"").trim()||null});
    }
    registryTotal=listed.size;
    if(!registryTotal)registryAvailable=false;
