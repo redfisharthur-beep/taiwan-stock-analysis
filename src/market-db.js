@@ -161,6 +161,34 @@ export async function saveResearch(db,company,clean,body){
   .bind(ts,company.stock).run();
  return {financialPeriod:latestStmt,technicalDate,chipsDate};
 }
+/** ETF archive stores fund price/technical information only, never issuer earnings. */
+export async function saveETFResearch(db,company,body){
+ if(!body||body.kind!=="etf"||body.stock!==company.stock)
+  throw Error("ETF profile identity mismatch");
+ const ts=now(),date=body.finmind?.date||null,technical=body.score?.parts?.technical||null;
+ await db.prepare(`INSERT INTO market_profiles
+ (stock,market_date,financial_period,technical_date,chips_date,score_json,metrics_json,candles_json,dataset_health_json,fetched_at)
+ VALUES(?,?,NULL,?,NULL,?,?,?,?,?)
+ ON CONFLICT(stock) DO UPDATE SET market_date=excluded.market_date,
+ financial_period=NULL,technical_date=excluded.technical_date,chips_date=NULL,
+ score_json=excluded.score_json,metrics_json=excluded.metrics_json,
+ candles_json=excluded.candles_json,dataset_health_json=excluded.dataset_health_json,
+ fetched_at=excluded.fetched_at`).bind(company.stock,date,
+ body.score?.indicators?.date||null,JSON.stringify(body.score),
+ JSON.stringify({kind:"etf",technicalDate:body.score?.indicators?.date||null,
+  verified:body.verification?.state==="一致",quoteSource:body.official?.source||null}),
+ JSON.stringify(body.candles||[]),JSON.stringify(body.datasetHealth||[]),ts).run();
+ const bars=(body.candles||[]).filter(x=>x.date&&numeric(x.close)>0).slice(-120);
+ await runBatch(db,bars.map(x=>db.prepare(`INSERT INTO market_bars
+ (stock,date,open,high,low,close,volume,source) VALUES(?,?,?,?,?,?,?,?)
+ ON CONFLICT(stock,date) DO UPDATE SET open=excluded.open,high=excluded.high,
+ low=excluded.low,close=excluded.close,volume=excluded.volume,source=excluded.source`)
+ .bind(company.stock,x.date,numeric(x.open),numeric(x.high),numeric(x.low),x.close,
+  numeric(x.volume),"FinMind ETF historical quotes")));
+ await db.prepare("UPDATE companies SET last_profile_at=?,last_error=NULL WHERE stock=?")
+  .bind(ts,company.stock).run();
+ return {technicalDate:body.score?.indicators?.date||null};
+}
 export async function recordResearchFailure(db,stock,message){
  await db.prepare("UPDATE companies SET last_error=? WHERE stock=?")
   .bind(String(message||"資料來源暫不可用").slice(0,240),stock).run();
