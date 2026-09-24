@@ -1,9 +1,8 @@
 import {tickerPattern,isETFCandidate} from "./instruments.js";
-import {finmind,officialQuote,scanOfficialUniverse,rankUniverseCandidates,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
+import {finmind,officialQuote,scanOfficialUniverse,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
 import {getHoldingRows,concentration,archivedHoldingForStock} from "./holding.js";
 import {researchNews} from "./news.js";
-import {assessUndervaluation} from "./value.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
 import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
@@ -217,8 +216,8 @@ async function computeDailyObservations(env){
  return {ready:top.stocks.length>0||top.etfs.length>0,
   marketDate:summary.marketDate,asOf:new Date().toISOString(),
   stocks:top.stocks,etfs:top.etfs,analyzedCount:summary.profiles,
-  eligibleStocks:top.eligibleStocks,eligibleETFs:top.eligibleETFs,
-  universe:{total:summary.total,profiles:summary.profiles,
+  selectedStocks:top.selectedStocks,selectedETFs:top.selectedETFs,
+  universe:{total:summary.total,profiles:summary.profiles,currentProfiles:summary.currentProfiles,
    fullCoverage:summary.fullCoverage,scannedAll:isComplete},
   reason:!summary.total?"尚未完成上市與上櫃股票名冊同步。":
    !isComplete?"目前僅顯示已取得完整且核實資料的股票；全市場逐檔研究仍在進行，非全市場最終前五名。":
