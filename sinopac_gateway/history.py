@@ -15,14 +15,12 @@ def _moment(value):
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return None
-    elif isinstance(value, (int, float)):
+    else:
         try:
             v = float(value)
             dt = datetime.fromtimestamp(v / (1e9 if v > 1e15 else 1e3 if v > 1e12 else 1), timezone.utc)
-        except (ValueError, OverflowError, OSError):
+        except (ValueError, TypeError, OverflowError, OSError):
             return None
-    else:
-        return None
     return dt.replace(tzinfo=TAIPEI) if dt.tzinfo is None else dt.astimezone(TAIPEI)
 
 
