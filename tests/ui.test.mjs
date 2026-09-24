@@ -30,3 +30,21 @@ test("Cloudflare cron weekday names cannot unintentionally include Sunday",()=>{
  assert.deepEqual(wrangler.triggers.crons,
  ["*/5 * * * *","0 11 * * MON-FRI","30 11 * * FRI"]);
 });
+
+test("requested long boilerplate is absent from both HTML and stock-card renderers",()=>{
+ const unwanted=[
+  "部分市場或公司名冊資料尚未齊備；請以個股來源為準。",
+  "財報尚待核對，不能只憑低本益比判斷價值。",
+  "個股詳細資料待補",
+  "財報或同日歷史行情待核對，暫不標記被低估。",
+  "官方與 FinMind 同日價格一致",
+  "部分來源暫未取得，詳見「資料來源與更新說明」。",
+  "同市場同產業：",
+  "資料期：",
+  "K 線顯示真實成交價；技術指標優先採還原價",
+  "尚待完成："
+ ];
+ for(const phrase of unwanted){
+  assert.equal(html.includes(phrase)||js.includes(phrase),false,phrase);
+ }
+});
