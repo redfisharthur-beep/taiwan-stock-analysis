@@ -9,7 +9,7 @@ const age=(now,date)=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(now||"")&&
  Math.round((Date.parse(now+"T00:00:00Z")-Date.parse(date+"T00:00:00Z"))/86400000):null;
 const fresh=(now,date,days)=>{const n=age(now,date);return n!==null&&n>=0&&n<=days};
 const part=(name,max,score,value,date,source,note)=>({
- name,max,score:finite(score)?round(Math.max(0,Math.min(max,score))):null,
+ name,max,score:finite(score)?(max===0?round(Math.max(-5,Math.min(5,score))):round(Math.max(0,Math.min(max,score)))):null,
  value:value??null,date:date??null,source:source??null,note:note??""});
 const recent=(rows,date,days)=>[...rows].filter(r=>r&&fresh(date,r.date,days))
  .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null;
