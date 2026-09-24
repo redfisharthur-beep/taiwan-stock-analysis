@@ -10,12 +10,18 @@
   <h1>選股不用先懂一堆術語</h1>
   <p>先看每日觀察與價值投資名單，再點進去看「為什麼入選、哪些條件還沒達標」。</p>
  </div>
- <div class="weights" aria-label="深入研究的四個面向"><div class="weights-title">深入研究看 4 件事</div><div><b>50%</b><span>基本</span></div><div><b>10%</b><span>消息</span></div><div><b>20%</b><span>籌碼</span></div><div><b>20%</b><span>技術</span></div></div>
+ <details class="weights-help"><summary>進階：分析分數怎麼看？</summary><div class="weights" aria-label="深入研究的四個面向"><div class="weights-title">深入研究看 4 件事</div><div><b>50%</b><span>基本</span></div><div><b>10%</b><span>消息</span></div><div><b>20%</b><span>籌碼</span></div><div><b>20%</b><span>技術</span></div></div></details>
 </section>
 <section class="panel search"><label for="ticker">想查哪一檔股票？</label><form id="search"><input id="ticker" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="輸入代號，例如 2330" required><button id="submit" type="submit">查詢</button></form><p id="status" role="status">輸入股票代號，即可查看近期行情、資料來源與研究重點。</p></section>
 <section class="panel" id="daily-panel">
  <div class="card-head"><div><div class="eyebrow">每日研究清單</div><h2>每日觀察 5 檔</h2><p class="section-intro">每檔最近收盤價低於 500 元，並顯示入選依據與尚待確認的風險。</p></div><span class="pill" id="daily-date">查詢中</span></div>
  <p class="muted" id="daily-status" role="status">正在讀取上市、上櫃官方行情…</p><div class="coverage-strip" id="market-coverage" role="status">市場掃描情況載入中…</div>
+ <details class="newbie-guide"><summary>新手先看這裡：3 個數字怎麼理解？</summary>
+ <p><b>本益比（PE）</b>：股價相對每股盈餘的倍數。較低不一定便宜，虧損股也可能無法計算。</p>
+ <p><b>股價淨值比（PB）</b>：股價相對每股帳面淨值的倍數，不同產業不能只比一個數字。</p>
+ <p><b>殖利率</b>：股利相對股價的歷史比例，未來配息不保證，還要看獲利與現金流。</p>
+ <p>綠色代表達到本平台的初步檢查門檻；橘色代表未達；灰色代表資料不足。這些標籤不等於買賣建議。</p>
+ </details>
  <div id="daily-list" class="daily-list"></div>
  <div class="secondary-heading"><div><h3>價值投資觀察 5 檔</h3><p class="section-intro">從可核對的估值資料找出 5 檔供研究；不會因條件太嚴而把名單清空，未達標會清楚標示。</p></div><span class="pill" id="value-date">查詢中</span></div>
  <p class="muted" id="value-status" role="status">正在比較兩市場官方估值資料…</p>
