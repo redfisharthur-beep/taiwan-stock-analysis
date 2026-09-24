@@ -16,7 +16,7 @@ test("do not bypass a blocked page",()=>{
  assert.equal(parseGoodinfoQuote(html().replace("2330 台積電","系統忙碌中"),"2330"),null);
 });
 test("real fetch date mismatch prevents cross-day comparison",async()=>{
- const fetcher=async()=>({ok:true,headers:new Headers({"content-type":"text/html"}),text:async()=>html("09/23")});
+ const fetcher=async()=>({ok:true,headers:new Headers({"content-type":"text/html"}),arrayBuffer:async()=>new TextEncoder().encode(html("09/23")).buffer});
  const got=await getGoodinfoQuote("2330","2026-09-24",fetcher);
  assert.equal(got.status,"different_day");
 });
