@@ -19,7 +19,7 @@ export async function saveUniverse(db,universe){
  const rows=universe.allStocks.map(r=>db.prepare(sql).bind(r.stock,r.name||r.stock,r.market,
   r.industry||null,numeric(r.close),r.date||null,numeric(r.turnover),numeric(r.volume),
   numeric(r.screen?.per),numeric(r.screen?.pbr),numeric(r.screen?.dividendYield),
-  r.screen?.date||r.date||null,ts));
+  r.screen?.date||null,ts));
  await runBatch(db,rows);
  await db.prepare("INSERT INTO sync_state(key,value,updated_at) VALUES ('universe',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
   .bind(JSON.stringify({date:universe.marketDate,count:universe.universeCount,markets:universe.markets,
