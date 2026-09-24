@@ -69,7 +69,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
    const close=n(raw[m.close]),turnover=n(raw[m.turnover]??raw.TradeValue??raw.TransactionAmount);
    const volume=n(raw[m.volume]??raw.TradingShares??raw.TradeVolume);
    const name=String(raw[m.name]??"").trim();
-   const kind=securityKind(stock,{quotedName:name});
+   const kind=isCompanyCode(stock)?"stock":securityKind(stock,{quotedName:name});
    rows.push({stock,name,kind,market:m.market,source:m.source,
     url:m.quoteUrl,close,date:quoteDate,turnover,volume,
     screen:kind==="stock"&&ratio&&(!ratio.date||ratio.date===quoteDate)?ratio:null});
@@ -105,7 +105,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
    // Without a company registry, distinguish ETF quote series from unconfirmed
    // common shares, and never describe an unverified code as a known company.
    for(const row of rows)if(row.kind==="etf")row.industry="ETF";
-   rows.splice(0,rows.length,...rows.filter(r=>r.kind==="etf"));
+   rows.splice(0,rows.length,...rows.filter(r=>r.kind==="etf"||r.kind==="stock"));
   }
   const date=rows.map(r=>r.date).filter(Boolean).sort().at(-1)||null;
   return {market:m.market,date,rows,registryAvailable,registryTotal,valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
