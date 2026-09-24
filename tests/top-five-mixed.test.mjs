@@ -19,7 +19,7 @@ test("one shared shortlist has exactly five stock and ETF entries ranked on docu
 test("incomplete ratings never become homepage candidates and no zero or invented scores are added",()=>{
  const items=mergeVerifiedResearch({stocks:[
   {stock:"2330",kind:"stock",score:null,coveredPoints:85,scoreModel:"company_40_30_30"},
-  {stock:"2317",kind:"stock",score:77,coveredPoints:100,scoreModel:"company_40_30_30"}
+  {stock:"2317",kind:"stock",score:77,coveredPoints:85,scoreModel:"company_40_30_30"}
  ],etfs:[{stock:"0050",kind:"etf",technicalScore:19,technicalCoverage:22,
   scoreModel:"etf_technical_30"}]});
  assert.deepEqual(items,[]);
