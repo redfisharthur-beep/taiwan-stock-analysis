@@ -94,6 +94,7 @@ function present(d){
  const news=d.newsResearch||{status:"unverified",events:[],checked:[]};
  $("news-status").textContent=news.status==="corroborated_event"?
   "官方公告＋獨立媒體核對："+(news.impact||"影響待觀察")+"（非股價預測）":
+  news.status==="official_event_only"?"已取得官方重大公告，獨立新聞尚待核實":
   news.status==="independent_media_only"?"兩家獨立媒體同事件（尚無官方公告）："+(news.impact||"待判讀"):
   "尚無完成跨來源確認的重大事件，消息面維持待評。";
  const ev=$("news-evidence");ev.replaceChildren();
