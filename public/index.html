@@ -8,11 +8,10 @@
 
 <section class="panel search"><form id="search" autocomplete="off"><input id="ticker" type="search" maxlength="30" placeholder="輸入股票代碼或文字" aria-label="搜尋股票代號或名稱" aria-autocomplete="list" aria-controls="suggestions" required><button id="submit" type="submit">搜尋</button></form><div id="suggestions" class="suggestions" role="listbox" hidden></div><p id="status" role="status" hidden></p></section>
 <section class="panel" id="daily-panel">
- <div class="card-head"><h2>綜合分數前五名</h2></div>
+ <div class="card-head"><h2>綜合評分前五名</h2></div>
  <p class="muted" id="daily-status" role="status" hidden></p>
  <div id="daily-list" class="daily-list"></div>
- <details class="fineprint" id="market-sync"><summary>全市場資料更新狀態</summary><p id="market-sync-label" class="muted">尚未確認資料庫狀態</p></details>
- <details class="fineprint"><summary>評分依據</summary>僅顯示當日行情已核實且基本面40分、技術面30分、籌碼面30分全部具備的公司股票，依綜合分數顯示前五檔。消息依已核實事件加減分。ETF獨立以技術資料評估，不與公司100分制混排。資料未同步或全市場尚未分析完成時，不把初篩股票冒充全市場最高分。</details>
+
 </section>
 <div id="result" hidden>
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
