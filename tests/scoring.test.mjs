@@ -89,3 +89,30 @@ test("verified good news adds points, bad news deducts points, and no news is ne
   assert.equal(result.coveredPoints,0);
  }
 });
+
+test("three-week TDCC HTTP 403 is irrelevant after dropping unavailable holder trend",()=>{
+ const end=Date.parse("2026-09-24T00:00:00Z");
+ const days=Array.from({length:120},(_,i)=>new Date(end-(119-i)*86400000).toISOString().slice(0,10));
+ const prices=days.map((date,i)=>({date,close:100+i*.1,volume:10000+i*12}));
+ const institutional=days.slice(-5).map(date=>({date,name:"Foreign",buy:6000,sell:4000}));
+ const scored=scoreStock({prices,institutional,
+  revenues:[{date:"2026-09-01",revenue_year:2026,revenue_month:9,revenue:1200},
+   {date:"2025-09-01",revenue_year:2025,revenue_month:9,revenue:1000}],
+  financials:[{date:"2026-06-30",type:"EPS",value:3},{date:"2025-06-30",type:"EPS",value:2}],
+  cashFlows:[{date:"2026-06-30",type:"CashFlowsFromOperatingActivities",value:150},
+   {date:"2025-06-30",type:"CashFlowsFromOperatingActivities",value:100},
+   {date:"2026-06-30",type:"NetIncomeBeforeTax",value:120}],
+  balance:[{date:"2026-06-30",type:"TotalLiabilities",value:400},
+   {date:"2026-06-30",type:"TotalAssets",value:1000}],
+  valuation:days.map(date=>({date,per:12+(date.endsWith("2")?1:0)})),
+  margin:[{date:"2026-09-24",financing:1000,previousFinancing:1100}]
+ });
+ assert.equal(scored.coveragePercent,100);
+ assert.equal(scored.score,81);
+ assert.equal(scored.parts.chips.max,30);
+ assert.equal(scored.parts.chips.covered,30);
+ assert.deepEqual(scored.parts.chips.items.map(x=>[x.name,x.max]),
+  [["法人近五日淨買賣／成交量",20],["融資餘額變化",10]]);
+ assert.equal(scored.scoreModelVersion,"chips_flow20_margin10_v1");
+ assert.ok(scored.parts.chips.items.every(x=>x.score!==null));
+});
