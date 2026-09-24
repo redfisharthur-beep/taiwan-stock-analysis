@@ -1,5 +1,5 @@
-// 固定權重：基本 50、消息 10、籌碼 20、技術 20；缺值不視為 0，不重新加權。
-export const WEIGHTS={fundamental:50,news:10,chips:20,technical:20};
+// Base coverage requires 40+30+30=100. Verified news is a signed bonus/penalty, never a coverage requirement.
+export const WEIGHTS={fundamental:40,news:0,chips:30,technical:30};
 const finite=x=>typeof x==="number"&&Number.isFinite(x);
 const round=x=>Math.round(x*100)/100;
 export const num=x=>{if(x===null||x===undefined||x===""||x==="--"||x==="-")return null;
@@ -160,40 +160,43 @@ export function scoreStock({
  const event=matched("重大公告與事件"),report=matched("獨立新聞來源"),
   sector=matched("產業事件");
  const fundamental=[
-  part("單月營收年增率",10,yoy===null?null:yoy>=20?10:yoy>=10?8:yoy>=0?6:yoy>=-10?3:1,
+  part("單月營收年增率",8,yoy===null?null:yoy>=20?8:yoy>=10?6:yoy>=0?5:yoy>=-10?2:1,
    yoy===null?null:round(yoy)+"%",lastRev?.date,"FinMind","比較去年同月；逾90天不計分"),
-  part("EPS 與去年同季",10,epsScore,eps?{eps:epsValue,yoyPct:epsGrowth===null?null:round(epsGrowth)}:null,
+  part("EPS 與去年同季",8,epsScore===null?null:round(epsScore*.8),eps?{eps:epsValue,yoyPct:epsGrowth===null?null:round(epsGrowth)}:null,
    eps?.date,"FinMind","以單季EPS及同季年增計分；配股／分割後歷史值可能不可比"),
-  part("營業現金流（初步）",10,cashScore,cashValue,operating?.date,operating?"FinMind":null,
+  part("營業現金流（初步）",8,cashScore===null?null:round(cashScore*.8),cashValue,operating?.date,operating?"FinMind":null,
    "營業現金流正負及同年同期，單位為原始財報金額"),
-  part("獲利品質與負債",10,quality.score,
+  part("獲利品質與負債",8,quality.score===null?null:round(quality.score*.8),
    quality.debtRatio===null&&quality.cashConversion===null?null:
     {cashConversion:quality.cashConversion,debtRatioPct:quality.debtRatio},
    quality.date,quality.debtRatio===null&&quality.cashConversion===null?null:"FinMind",
    quality.note+"；金融業需依其專用財務口徑解讀"),
-  part("估值／本益比",10,perScore,currentPER?{per:num(currentPER.per),
+  part("估值／本益比",8,perScore===null?null:round(perScore*.8),currentPER?{per:num(currentPER.per),
     oneYearPercentile:perPercentile}:null,currentPER?.date,
    currentPER?"FinMind":null,"近12個月個股自身本益比分位；須至少60筆有效歷史，未作跨產業比較")
  ];
- const news=[
-  part("重大公告與事件",5,event?.score??null,event?.value??null,event?.date,event?.source,
-   event?.note||"尚無經跨來源確認的重大事件"),
-  part("獨立新聞來源",3,report?.score??null,report?.value??null,report?.date,report?.source,
-   report?.note||"原始獨立媒體事件尚未完成核實"),
-  part("產業事件",2,sector?.score??null,sector?.value??null,sector?.date,
-   sector?.source,sector?.note||"沒有來自兩個獨立原始媒體、同一事件識別碼的授權產業報導")
- ];
+ const newsEvents=(newsResearch?.events||[]).filter(e=>
+  ["order_won","order_cancelled","adverse_litigation","financial_restatement"].includes(e.kind)&&
+  ["official_only","independent_corrob"].includes(e.verification)&&e.date&&
+  e.date<=date&&fresh(date,e.date,30));
+ const newsLatest=[...newsEvents].sort((a,b)=>b.date.localeCompare(a.date))[0]||null;
+ const newsDelta=newsLatest?
+  (newsLatest.kind==="order_won"?1:-1)*
+  (newsLatest.verification==="independent_corrob"?5:2):0;
+ const news=[part("消息事件調整",0,newsDelta,newsLatest?.title||"無已核實加減分事件",
+  newsLatest?.date||null,newsLatest?.source||null,
+  newsLatest?"已核實公告；依事件類型 "+(newsDelta>0?"加分":"扣分"):"未核實正負面事件，調整 0 分")];
  const chips=[
-  part("法人近五日淨買賣／成交量",10,flowScore,flowStats?
+  part("法人近五日淨買賣／成交量",15,flowScore===null?null:round(flowScore*1.5),flowStats?
    {netShares:flowStats.net,totalShares:flowStats.volume,ratioPct:flowStats.ratio,
     tradingDates:flowStats.tradingDates,delayedSessions:flowStats.delayedTradingSessions}:null,
    flowStats?.date,flowStats?"FinMind":null,
    "以最近五個連續已公布法人資料的交易日計算；若成交行情較新最多容許兩個交易日落差，絕不補造未公告日期"),
-  part("400張以上持股三週趨勢",5,holderScore,trend?
+  part("400張以上持股三週趨勢",8,holderScore===null?null:round(holderScore*1.6),trend?
    {holderPct:holding.share,weeklyChangesPct:trend.weeklyChanges,
     changeTwoWeeksPct:trend.changeTwoWeeks}:null,holding?.date,holding?.source,
    holding?.note||"需TDCC三期連續週資料；單次高持股不給分"),
-  part("融資餘額變化",5,marginScore,marginChange,marginLatest?.date,marginLatest?"FinMind":null,
+  part("融資餘額變化",7,marginScore===null?null:round(marginScore*1.4),marginChange,marginLatest?.date,marginLatest?"FinMind":null,
    "單日融資餘額變化；不代表下一日股價方向")
  ];
  const techNote=technicalMode==="adjusted"?
@@ -207,16 +210,16 @@ export function scoreStock({
   tech.volatility20<=35&&tech.maxDrawdown60<=15?4:
   tech.volatility20<=45&&tech.maxDrawdown60<=22?3:1:null;
  const technical=[
-  part("均線趨勢",6,tech===null?null:tech.close>tech.ma20&&tech.ma20>tech.ma60?6:tech.close>tech.ma20?4:1,
+  part("均線趨勢",9,tech===null?null:tech.close>tech.ma20&&tech.ma20>tech.ma60?9:tech.close>tech.ma20?6:1,
    tech?{close:tech.close,ma20:tech.ma20,ma60:tech.ma60}:null,tech?.date,tech?technicalSource:null,techNote),
-  part("RSI(14)",3,tech===null?null:tech.rsi>=45&&tech.rsi<=65?3:
-   tech.rsi>70||tech.rsi<30?1:2,tech?.rsi,tech?.date,tech?technicalSource:null,techNote),
-  part("MACD",3,tech===null?null:tech.macd>tech.signal?3:1,
+  part("RSI(14)",5,tech===null?null:tech.rsi>=45&&tech.rsi<=65?5:
+   tech.rsi>70||tech.rsi<30?1:3,tech?.rsi,tech?.date,tech?technicalSource:null,techNote),
+  part("MACD",5,tech===null?null:tech.macd>tech.signal?5:2,
    tech?{macd:tech.macd,signal:tech.signal,cross:tech.macdCross}:null,tech?.date,tech?technicalSource:null,techNote),
-  part("量價",3,tech?.volumeRatio===null||!tech?null:
-   tech.volumeRatio>=1.2&&tech.close>tech.ma20?3:tech.volumeRatio<.5?1:2,
+  part("量價",5,tech?.volumeRatio===null||!tech?null:
+   tech.volumeRatio>=1.2&&tech.close>tech.ma20?5:tech.volumeRatio<.5?1:3,
    tech?.volumeRatio,tech?.date,tech?technicalSource:null,techNote),
-  part("波動幅度與60日最大回撤",5,riskScore,tech?
+  part("波動幅度與60日最大回撤",6,riskScore===null?null:round(riskScore*1.2),tech?
    {annualizedVolatility20Pct:tech.volatility20,maxDrawdown60Pct:tech.maxDrawdown60}:null,
    tech?.date,tech?technicalSource:null,
    tech?"20日報酬波動年化與60日歷史峰值回撤；僅風險觀察，不預測未來。"+techNote:techNote)
@@ -225,10 +228,16 @@ export function scoreStock({
  const parts=Object.fromEntries(Object.entries(groups).map(([key,items])=>
   [key,{max:WEIGHTS[key],earned:round(items.reduce((sum,i)=>sum+(i.score??0),0)),
    covered:items.reduce((sum,i)=>sum+(i.score===null?0:i.max),0),items}]));
- const coveredPoints=Object.values(parts).reduce((sum,p)=>sum+p.covered,0);
- const observedPoints=round(Object.values(parts).reduce((sum,p)=>sum+p.earned,0));
- return {score:coveredPoints===100?observedPoints:null,observedPoints,coveredPoints,
-  coveragePercent:coveredPoints,complete:coveredPoints===100,parts,indicators:tech,
+ const coreKeys=["fundamental","technical","chips"];
+ const coveredPoints=coreKeys.reduce((sum,k)=>sum+parts[k].covered,0);
+ const observedPoints=round(coreKeys.reduce((sum,k)=>sum+parts[k].earned,0));
+ const complete=coveredPoints===100;
+ // A verified news adjustment never fills missing fundamental/technical/chip coverage.
+ // Clamp the final presentation to the standard 0–100 scale.
+ const score=complete?round(Math.max(0,Math.min(100,observedPoints+newsDelta))):null;
+ return {score,baseScore:complete?observedPoints:null,newsDelta,
+  observedPoints,coveredPoints,
+  coveragePercent:coveredPoints,complete,parts,indicators:tech,
   latestPriceDate:date,technicalMode,
   metrics:{quality,perPercentile,per:currentPER?num(currentPER.per):null},
   diagnostics:{
@@ -237,5 +246,5 @@ export function scoreStock({
       brokerCount:brokerRows.length,brokerDate:brokerRows.at(-1)?.date??null,
       alignedCount:aligned.length,reason:techNote}
   },
-  disclaimer:"資料涵蓋率與實際得分分開；缺資料不補0分、不重新加權，分數不代表未來報酬。"};
+  disclaimer:"基本面40、技術30、籌碼30；三者完整才顯示總分。消息僅依已核實公告加減，不補造缺值。"};
 }
