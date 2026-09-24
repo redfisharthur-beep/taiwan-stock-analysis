@@ -7,33 +7,12 @@
 <main>
 
 <section class="panel search"><form id="search" autocomplete="off"><input id="ticker" type="search" maxlength="30" placeholder="輸入股票代碼或文字" aria-label="搜尋股票代號或名稱" aria-autocomplete="list" aria-controls="suggestions" required><button id="submit" type="submit">搜尋</button></form><div id="suggestions" class="suggestions" role="listbox" hidden></div><p id="status" role="status" hidden></p></section>
-<section class="panel" id="universe-panel">
- <div class="card-head"><h2>全市場分析</h2><span class="pill">上市・上櫃・ETF</span></div>
- <p class="muted" id="universe-summary">全市場名冊與逐檔分析進度</p>
- <form id="universe-form" class="universe-form" autocomplete="off">
-  <label for="universe-market">市場</label>
-  <select id="universe-market" aria-label="選擇股票市場">
-   <option value="all">全部標的</option><option value="上市">上市</option>
-   <option value="上櫃">上櫃</option><option value="股票">公司股票</option><option value="ETF">ETF</option>
-  </select>
-  <label for="universe-query">代號或名稱</label>
-  <input type="search" id="universe-query" maxlength="30" placeholder="搜尋全市場股票" />
-  <button type="submit">查詢</button>
- </form>
- <p id="universe-status" class="muted" role="status"></p>
- <div id="universe-list" class="universe-list"></div>
- <div class="universe-pager">
-  <button type="button" id="universe-prev" class="outline" disabled>上一頁</button>
-  <span id="universe-page" aria-live="polite"></span>
-  <button type="button" id="universe-next" class="outline" disabled>下一頁</button>
- </div>
-</section>
 <section class="panel" id="daily-panel">
- <div class="card-head"><h2>每日觀察</h2></div>
+ <div class="card-head"><h2>綜合分數前五名</h2></div>
  <p class="muted" id="daily-status" role="status" hidden></p>
  <div id="daily-list" class="daily-list"></div>
  <details class="fineprint" id="market-sync"><summary>全市場資料更新狀態</summary><p id="market-sync-label" class="muted">尚未確認資料庫狀態</p></details>
- <details class="fineprint"><summary>名單怎麼選？</summary>觀察名單分別呈現上市股票、上櫃股票及 ETF，所有價格皆可納入，不以 500 元為上限。股票以公司名冊、官方行情和估值進行初篩；ETF 使用獨立的基金類別，不將公司本益比、EPS 或負債比套用在基金上。上市／上櫃或 ETF 行情、財報與技術資料須依來源日期核對；未交易、資料尚未公布或特殊證券不冒充已完成分析。本站不提供保證報酬或買賣建議。</details>
+ <details class="fineprint"><summary>評分依據</summary>僅顯示當日行情已核實且基本面40分、技術面30分、籌碼面30分全部具備的公司股票，依綜合分數顯示前五檔。消息依已核實事件加減分。ETF獨立以技術資料評估，不與公司100分制混排。資料未同步或全市場尚未分析完成時，不把初篩股票冒充全市場最高分。</details>
 </section>
 <div id="result" hidden>
  <section class="panel stock-panel"><div class="stock-head"><div><div class="eyebrow" id="market"></div><h2 id="stock-name"></h2><p id="asof" class="muted"></p></div><div class="value"><small>最近收盤價</small><strong id="close">—</strong><small id="price-date"></small></div></div>
