@@ -3,75 +3,66 @@ const $=id=>document.getElementById(id);
 const el=(tag,text="",cls="")=>{const x=document.createElement(tag);x.textContent=String(text??"");if(cls)x.className=cls;return x;};
 const fmt=value=>typeof value==="object"&&value!==null?
  Object.entries(value).map(([k,v])=>k+" "+(v??"待查")).join("、"):String(value??"—");
-const summaryLines=item=>{
- const value=item?.value;
- if(value&&typeof value==="object"&&!Array.isArray(value)){
-  return Object.entries(value).map(([key,v],i)=>i===0?
-   item.name+"："+key+" "+(v??"待查"):key+" "+(v??"待查"));
- }
- return [item.name+"："+fmt(value)];
-};
 let current=null;
 function message(node,text,bad=false){node.textContent=text;node.className="notice"+(bad?" bad":"");}
 const numberText=(n,unit="")=>typeof n==="number"&&Number.isFinite(n)?
  n.toLocaleString("zh-TW",{maximumFractionDigits:2})+unit:"待查";
 const metricDetails=item=>{
- const v=item.value;
- const rows=[];
- const add=(label,value,note,unit="")=>{
+ const v=item.value,rows=[];
+ const add=(label,value,note="",unit="")=>{
   if(value!==null&&value!==undefined&&value!=="")
    rows.push({label,value:typeof value==="number"?numberText(value,unit):String(value),note});
  };
  switch(item.name){
- case "單月營收年增率":
-  add("",v,"與去年同月相比");break;
+ case "單月營收年增率": {
+  const yoy=Number.parseFloat(v);
+  add("",v,Number.isFinite(yoy)?yoy>0?"營收較去年同月增加":yoy<0?"營收較去年同月減少":"營收與去年同月持平":"與去年同月比較");
+  break;
+ }
  case "EPS 與去年同季":
-  add("eps",v?.eps,"本季每股盈餘"," 元");
-  add("yoyPct",v?.yoyPct,"相較去年同季","%");
-  break;
+  add("每股盈餘",v?.eps,"本季每股獲利"," 元");
+  add("年增率",v?.yoyPct,"與去年同季比較","%");break;
  case "營業現金流（初步）":
-  add("",v,"本期營業現金流（原始財報金額）");break;
+  add("",v,"本期營業現金流");break;
  case "獲利品質與負債":
-  add("cashConversion",v?.cashConversion,"營業現金流／稅前淨利"," 倍");
-  add("debtRatioPct",v?.debtRatioPct,"總負債／總資產","%");
-  break;
+  add("現金轉換倍數",v?.cashConversion,"營業現金流 ÷ 稅前淨利"," 倍");
+  add("負債比",v?.debtRatioPct,"總負債占總資產","%");break;
  case "估值／本益比":
-  add("per",v?.per,"股價／每股盈餘"," 倍");
-  add("oneYearPercentile",v?.oneYearPercentile,"自身近一年本益比分位","%");
-  break;
+  add("本益比",v?.per,"股價 ÷ 每股盈餘"," 倍");
+  add("近一年分位",v?.oneYearPercentile,"相對自身近一年本益比","%");break;
  case "均線趨勢":
-  add("close",v?.close,"最新收盤價");
-  add("ma20",v?.ma20,"近20個交易日平均收盤價");
-  add("ma60",v?.ma60,"近60個交易日平均收盤價");break;
+  add("收盤價",v?.close,typeof v?.ma20==="number"?
+   (v.close>v.ma20?"高於20日均線":v.close<v.ma20?"低於20日均線":"與20日均線持平"):"最新收盤價");
+  add("20日均線",v?.ma20,typeof v?.ma60==="number"?
+   (v.ma20>v.ma60?"高於60日均線":v.ma20<v.ma60?"低於60日均線":"與60日均線持平"):"近20日平均收盤價");
+  add("60日均線",v?.ma60,"近60日平均收盤價");break;
  case "RSI(14)":
-  add("",v,typeof v==="number"?(v>=70?"動能偏強，留意短線波動":v<=30?"動能偏弱，留意短線波動":"14日動能指標"):"14日動能指標");
-  break;
+  add("",v,typeof v==="number"?(v>=70?"動能偏強":v<=30?"動能偏弱":"動能介於30至70之間"):"14日動能指標");break;
  case "MACD":
-  add("macd",v?.macd,"短期與長期均線動能差");
-  add("signal",v?.signal,"MACD 訊號線");
-  break;
+  add("MACD",v?.macd,typeof v?.signal==="number"?
+   (v.macd>v.signal?"高於訊號線":v.macd<v.signal?"低於訊號線":"與訊號線持平"):"短長期均線動能差");
+  add("訊號線",v?.signal,"觀察動能交叉");break;
  case "量價":
-  add("",v,"當日成交量／前20日平均量"," 倍");break;
+  add("",v,typeof v==="number"?(v>1?"成交量高於近20日平均":v<1?"成交量低於近20日平均":"成交量等於近20日平均"):"當日量 ÷ 近20日均量"," 倍");break;
  case "波動幅度與60日最大回撤":
-  add("annualizedVolatility20Pct",v?.annualizedVolatility20Pct,"近20日波動率（年化）","%");
-  add("maxDrawdown60Pct",v?.maxDrawdown60Pct,"近60日歷史最大回撤","%");break;
+  add("20日年化波動率",v?.annualizedVolatility20Pct,"數值越高，近期價格起伏越大","%");
+  add("60日最大回撤",v?.maxDrawdown60Pct,"近60日自高點的最大跌幅","%");break;
  case "法人近五日淨買賣／成交量":
-  add("法人買賣超",v?.netShares,"五個已公布交易日合計股數"," 股");
-  add("成交股數",v?.totalShares,"同期累計成交量"," 股");
-  add("買賣超占比",v?.ratioPct,"買賣超／同期成交股數","%");
-  break;
+  add("五日法人買賣超",v?.netShares,typeof v?.netShares==="number"?
+   (v.netShares>0?"近五個已公布交易日淨買超":v.netShares<0?"近五個已公布交易日淨賣超":"近五日買賣持平"):"五個已公布交易日合計"," 股");
+  add("同期成交量",v?.totalShares,"五個已公布交易日合計"," 股");
+  add("法人買賣超占比",v?.ratioPct,"淨買賣超 ÷ 同期成交量","%");break;
  case "400張以上持股三週趨勢":
-  add("持股占比",v?.holderPct,"最近一週400張以上持股比率","%");
-  add("三週變化",v?.changeTwoWeeksPct,"與兩週前相比（百分點）"," 個百分點");
-  break;
+  add("大戶持股占比",v?.holderPct,"最近一週400張以上持股","%");
+  add("近三週變化",v?.changeTwoWeeksPct,typeof v?.changeTwoWeeksPct==="number"?
+   (v.changeTwoWeeksPct>0?"大戶持股占比增加":v.changeTwoWeeksPct<0?"大戶持股占比減少":"大戶持股占比持平"):"與兩週前比較"," 個百分點");break;
  case "融資餘額變化":
-  add("",v,"當日融資餘額增減");break;
+  add("",v,typeof v==="number"?(v>0?"融資餘額增加":v<0?"融資餘額減少":"融資餘額持平"):"單日融資餘額變化");break;
  case "消息事件調整":
-  add("",item.score===null?0:item.score,item.score>0?"已核實正面事件加分":
-   item.score<0?"已核實負面事件扣分":"無已核實加減分事件"," 分");
-  break;
+  add("",item.score??0,item.score>0?"已核實正面事件加分":
+   item.score<0?"已核實負面事件扣分":"無加減分事件"," 分");break;
  default:
-  if(v!==null&&v!==undefined)add("",fmt(v),"本項觀察值");
+  if(v!==null&&v!==undefined)add("",fmt(v));
  }
  return rows;
 };
@@ -95,12 +86,7 @@ function groupCard(name,part,holdingStatus=null){
    if(entry.note)metric.append(el("small",entry.note));
    row.append(metric);
   }
-  if(item.score===null){
-   const detail=item.name==="400張以上持股三週趨勢"?
-    holdingStatus?.reason||"需連續三週的有效集保持股紀錄":
-    "該項資料尚未取得";
-   row.append(el("small",detail,"metric-pending"));
-  }
+  if(item.score===null)row.append(el("small","資料不足，暫不計分","metric-pending"));
   details.append(row);
  }
  box.append(details);
@@ -179,8 +165,8 @@ function present(d){
   ["技術面",d.score.parts.technical.earned+" / 30"],
   ["籌碼面",d.score.parts.chips.earned+" / 30"],
   ["消息加減",(d.score.newsDelta>0?"+":"")+(d.score.newsDelta??0)+" 分"],
-  ["綜合分數",d.score.score===null?"資料未達100%":d.score.score+" / 100"],
-  ["資料涵蓋",d.score.coveredPoints+" / 100"]
+  ["綜合分數",d.score.score===null?"待資料齊全":d.score.score+" / 100"],
+  ["資料涵蓋",d.score.coveragePercent+"%"]
  ];
  for(const [name,value] of displayedStats){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
