@@ -23,24 +23,28 @@ const mock=async url=>{
  if(url.includes("t187ap03_O"))return ["2001","2002"].map(code=>({SecuritiesCompanyCode:code,CompanyAbbreviation:"上櫃"+code}));
  throw Error("unexpected "+url);
 };
-test("registry scan includes halted company, excludes ETFs and all prices at or above 500",async()=>{
+test("registry scan retains ETF as a separate category and can apply an optional price ceiling",async()=>{
  const r=await scanOfficialUniverse({priceCeiling:500,fetchJSON:mock});
  assert.equal(r.marketCount,2);
- assert.equal(r.universeCount,6);
- assert.equal(r.sameDateCount,5);
+ assert.equal(r.universeCount,7);
+ assert.equal(r.sameDateCount,6);
  assert.equal(r.missingPriceCount,1);
  assert.equal(r.staleMarketCount,0);
- assert.equal(r.pricedCount,5);
- assert.equal(r.tradableCount,3);
+ assert.equal(r.pricedCount,6);
+ assert.equal(r.tradableCount,4);
  assert.equal(r.excludedOverCeiling,2);
- assert.deepEqual(new Set(r.stocks.map(x=>x.stock)),new Set(["1001","2001","2002"]));
+ assert.deepEqual(new Set(r.stocks.map(x=>x.stock)),new Set(["1001","2001","2002","0050"]));
  assert.equal(r.markets.every(x=>x.registryAvailable),true);
+ assert.equal(r.stocks.find(x=>x.stock==="0050").kind,"etf");
+ assert.equal(r.stocks.find(x=>x.stock==="0050").screen,null);
+ assert.equal(r.kindCounts.etf,1);
 });
 test("value shortlist remains available when no company meets all valuation checks",async()=>{
  const r=await scanOfficialUniverse({priceCeiling:500,fetchJSON:mock});
  const value=rankUniverseCandidates(r.stocks,"value",5);
- assert.equal(value.length,3);
+ assert.equal(value.length,4);
  assert.equal(value[0].stock,"1001");
+ assert.equal(value.find(x=>x.stock==="0050").screening.checks.length,0);
  assert.equal(value[0].screening.passedAll,true);
  assert.equal(value.filter(x=>x.screening.passedAll).length,1);
  assert.equal(value.find(x=>x.stock==="2002").screening.known,0);
@@ -53,4 +57,18 @@ test("missing company registry must be announced and cannot claim full-market co
  }});
  assert.equal(r.markets.every(x=>!x.registryAvailable),true);
  assert.equal(r.warnings.some(x=>x.includes("公司名冊暫不可用")),true);
+});
+
+test("default universe has no price cap and includes listed, OTC and multi-character ETF tickers",async()=>{
+ const full=await scanOfficialUniverse({fetchJSON:async url=>{
+  if(url.includes("daily_close_quotes"))return [...otc,{Date:date,SecuritiesCompanyCode:"00980T",
+   CompanyName:"上櫃債券ETF",Close:"18",TransactionAmount:"30000000",TradingShares:"50000"}];
+  return mock(url);
+ }});
+ assert.ok(full.stocks.some(x=>x.stock==="1003"&&x.close>500));
+ assert.ok(full.stocks.some(x=>x.stock==="0050"&&x.kind==="etf"&&x.market==="上市"));
+ assert.ok(full.stocks.some(x=>x.stock==="00980T"&&x.kind==="etf"&&x.market==="上櫃"));
+ assert.equal(full.excludedOverCeiling,0);
+ assert.equal(full.priceCeiling,undefined);
+ assert.equal(full.stocks.filter(x=>x.kind==="etf").every(x=>x.screen===null),true);
 });
