@@ -224,7 +224,7 @@ function formatDailyStocks(candidates,investigated,marketDate){
  });
 }
 
-async function computeTopFive(env){
+async function computeDailyObservations(env){
  const universe=await scanOfficialUniverse();
  const listed=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="stock"&&x.market==="上市"),"value",5);
  const otc=rankUniverseCandidates(universe.stocks.filter(x=>x.kind==="stock"&&x.market==="上櫃"),"value",5);
@@ -283,12 +283,12 @@ export default {async fetch(request,env,ctx){
   try{return reply(await getMarketSummary(env.MARKET_DB),200,60)}
   catch{return reply({configured:true,error:"資料表尚未初始化"},503)}
  }
- if(url.pathname==="/api/top5"){
+ if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.16.0");
+  const key=new Request(url.origin+"/api/observations?model=0.16.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
-   const body=await computeTopFive(env);
+   const body=await computeDailyObservations(env);
    const response=reply(body,200,1800);
    if(body.ready)ctx.waitUntil(cache.put(key,response.clone()));
    return response;
