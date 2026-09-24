@@ -57,6 +57,10 @@ test("missing company registry must be announced and cannot claim full-market co
  }});
  assert.equal(r.markets.every(x=>!x.registryAvailable),true);
  assert.equal(r.warnings.some(x=>x.includes("公司名冊暫不可用")),true);
+ assert.equal(r.marketCount,2);
+ assert.ok(r.allStocks.some(x=>x.stock==="1001"&&x.market==="上市"&&x.close===100));
+ assert.ok(r.allStocks.some(x=>x.stock==="2001"&&x.market==="上櫃"&&x.close===80));
+ assert.ok(r.markets.every(x=>x.registryAvailable===false));
 });
 
 test("default universe has no price cap and includes listed, OTC and multi-character ETF tickers",async()=>{
