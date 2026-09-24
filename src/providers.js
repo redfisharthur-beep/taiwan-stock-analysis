@@ -1,3 +1,4 @@
+import {isCompanyCode,isETFCandidate,securityKind,tickerPattern} from "./instruments.js";
 const FM="https://api.finmindtrade.com/api/v4/data";
 const twnow=()=>new Date(Date.now()+8*3600000).toISOString().slice(0,10);
 const daysBack=n=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
@@ -8,7 +9,7 @@ export function latestMarketDate(){return twnow()}
 function rocDate(s){const v=String(s??"").trim();if(/^\d{7}$/.test(v))return String(Number(v.slice(0,3))+1911)+"-"+v.slice(3,5)+"-"+v.slice(5,7);if(/^\d{3}\/\d{2}\/\d{2}$/.test(v))return String(Number(v.slice(0,3))+1911)+"-"+v.slice(4);if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v;return null}
 export async function officialQuote(stock){ // 官方端點失敗即標示失敗，絕不回填推測日期。
  const endpoints=[{market:"上市",source:"TWSE",url:"https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",code:"Code",price:"ClosingPrice",date:"Date",name:"Name"},{market:"上櫃",source:"TPEx",url:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",code:"SecuritiesCompanyCode",price:"Close",date:"Date",name:"CompanyName"}];
- const found=await Promise.all(endpoints.map(async p=>{try{const rows=await json(p.url);if(!Array.isArray(rows))throw Error("invalid format");const row=rows.find(r=>String(r[p.code]??"").trim()===stock);if(!row)return null;const price=n(row[p.price]);if(price===null||price<=0)throw Error("invalid closing price");return {market:p.market,source:p.source,name:String(row[p.name]??"").trim(),close:price,date:rocDate(row[p.date]),url:p.url,verifiedFormat:!!rocDate(row[p.date])};}catch(e){return {error:p.source+" 官方資料暫時不可用："+e.message}}}));
+ const found=await Promise.all(endpoints.map(async p=>{try{const rows=await json(p.url);if(!Array.isArray(rows))throw Error("invalid format");const row=rows.find(r=>String(r[p.code]??"").trim()===stock);if(!row)return null;const price=n(row[p.price]);if(price===null||price<=0)throw Error("invalid closing price");const name=String(row[p.name]??"").trim();return {market:p.market,source:p.source,name,kind:securityKind(stock,{company:isCompanyCode(stock),quotedName:name}),close:price,date:rocDate(row[p.date]),url:p.url,verifiedFormat:!!rocDate(row[p.date])};}catch(e){return {error:p.source+" 官方資料暫時不可用："+e.message}}}));
  return {quote:found.find(x=>x&&x.close)||null,errors:found.filter(x=>x?.error).map(x=>x.error)};
 }
 export function normalize(prices,revenue,financials,investors,valuation=[],cashFlows=[],margin=[],adjusted=[],balance=[]){return {
@@ -33,7 +34,7 @@ export function reconcile(official,prices){if(!official)return {state:"無法確
  * 缺價、停牌、非四位數、不同日期及暫缺估值者皆列入統計，不宣稱完成深度財報分析。
  * 僅用公開資料，避免把私人券商資料批量再散布。
  */
-export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={}){
+export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json}={}){
  const markets=[
   {market:"上市",source:"TWSE",quoteUrl:"https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
    ratioUrl:"https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL",
@@ -62,14 +63,16 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
   const seen=new Set(),rows=[];
   for(const raw of quotes.value){
    const stock=String(raw[m.code]??"").trim();
-   if(!/^[0-9]{4}$/.test(stock)||stock.startsWith("00")||seen.has(stock))continue;
+   if(!tickerPattern.test(stock)||seen.has(stock))continue;
    seen.add(stock);
    const quoteDate=rocDate(raw.Date),ratio=ratioMap.get(stock)||null;
    const close=n(raw[m.close]),turnover=n(raw[m.turnover]??raw.TradeValue??raw.TransactionAmount);
    const volume=n(raw[m.volume]??raw.TradingShares??raw.TradeVolume);
-   rows.push({stock,name:String(raw[m.name]??"").trim(),market:m.market,source:m.source,
+   const name=String(raw[m.name]??"").trim();
+   const kind=securityKind(stock,{quotedName:name});
+   rows.push({stock,name,kind,market:m.market,source:m.source,
     url:m.quoteUrl,close,date:quoteDate,turnover,volume,
-    screen:ratio&&(!ratio.date||ratio.date===quoteDate)?ratio:null});
+    screen:kind==="stock"&&ratio&&(!ratio.date||ratio.date===quoteDate)?ratio:null});
   }
   // 公司名冊補足停牌／無當日成交行情者；缺收盤價仍留在母體而不進榜單。
   let registryAvailable=registry.status==="fulfilled"&&Array.isArray(registry.value)&&registry.value.length>0;
@@ -78,7 +81,7 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
    const listed=new Map();
    for(const raw of registry.value){
     const stock=String(raw.SecuritiesCompanyCode??raw["公司代號"]??raw.Code??"").trim();
-    if(!/^[0-9]{4}$/.test(stock)||stock.startsWith("00"))continue;
+    if(!isCompanyCode(stock))continue;
     listed.set(stock,{name:String(raw.CompanyAbbreviation??raw["公司簡稱"]??raw.CompanyName??raw["公司名稱"]??"").trim(),
       industry:String(raw["產業別"]??raw["產業類別"]??raw.Industry??raw.IndustryName??raw.IndustryCode??raw.IndustryType??"").trim()||null});
    }
@@ -86,14 +89,23 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
    if(!registryTotal)registryAvailable=false;
    else{
     // 名冊作為股票身分母體：不讓 ETF 或非公司證券污染可排序的全市場名單。
-    const filtered=rows.filter(row=>listed.has(row.stock));
-    for(const row of filtered){const entry=listed.get(row.stock);row.name=entry.name||row.name;row.industry=entry.industry;}
+    const filtered=rows.filter(row=>listed.has(row.stock)||row.kind==="etf");
+    for(const row of filtered){
+     if(row.kind==="etf"){row.industry="ETF";row.screen=null;continue}
+     const entry=listed.get(row.stock);row.kind="stock";row.name=entry.name||row.name;row.industry=entry.industry;
+    }
     const found=new Set(filtered.map(row=>row.stock));
     for(const [stock,entry] of listed)if(!found.has(stock))
-     filtered.push({stock,name:entry.name,industry:entry.industry,market:m.market,source:m.source,url:m.quoteUrl,
+     filtered.push({stock,name:entry.name,kind:"stock",industry:entry.industry,market:m.market,source:m.source,url:m.quoteUrl,
       close:null,date:null,turnover:null,volume:null,screen:null});
     rows.length=0;rows.push(...filtered);
    }
+  }
+  if(!registryAvailable){
+   // Without a company registry, distinguish ETF quote series from unconfirmed
+   // common shares, and never describe an unverified code as a known company.
+   for(const row of rows)if(row.kind==="etf")row.industry="ETF";
+   rows.splice(0,rows.length,...rows.filter(r=>r.kind==="etf"));
   }
   const date=rows.map(r=>r.date).filter(Boolean).sort().at(-1)||null;
   return {market:m.market,date,rows,registryAvailable,registryTotal,valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
@@ -119,7 +131,9 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
   tradableCount:tradable.length,excludedOverCeiling:priced.filter(r=>r.close>=priceCeiling).length,
   missingPriceCount:all.filter(r=>!Number.isFinite(r.close)||r.close<=0).length,
   staleMarketCount:all.filter(r=>r.date&&r.date!==marketDate).length,
-  stocks:tradable,allStocks:all};
+  stocks:tradable,allStocks:all,kindCounts:{listed:all.filter(x=>x.market==="上市"&&x.kind==="stock").length,
+   otc:all.filter(x=>x.market==="上櫃"&&x.kind==="stock").length,
+   etf:all.filter(x=>x.kind==="etf").length}};
 }
 
 const validRatio=x=>typeof x==="number"&&Number.isFinite(x)&&x>0;
@@ -129,7 +143,7 @@ export function rankUniverseCandidates(rows,mode="daily",limit=5){
   const s=r.screen||{},per=validRatio(s.per)?s.per:null,pbr=validRatio(s.pbr)?s.pbr:null,
    yieldPct=safeYield(s.dividendYield)?s.dividendYield:null;
   // 本益比無法合理反映虧損股的估值；缺財報與自由現金流時只算「初篩」。
-  const checks=[
+  const checks=r.kind==="etf"?[]:[
    {label:"本益比 18 倍以下",status:per===null?"unknown":per<=18?"pass":"fail"},
    {label:"股價淨值比 1.8 倍以下",status:pbr===null?"unknown":pbr<=1.8?"pass":"fail"},
    {label:"殖利率至少 3%",status:yieldPct===null?"unknown":yieldPct>=3?"pass":"fail"}
@@ -137,12 +151,12 @@ export function rankUniverseCandidates(rows,mode="daily",limit=5){
   const known=checks.filter(c=>c.status!=="unknown").length,passed=checks.filter(c=>c.status==="pass").length;
   const ratioCoverage=[per,pbr,yieldPct].filter(x=>x!==null).length;
   // 僅為可解釋的選股排序鍵，絕非內在價值、投資報酬率或四面向百分制總分。
-  const valuationPoints=(per===null?0:per<=12?4:per<=18?3:per<=25?2:1)+
+  const valuationPoints=r.kind==="etf"?0:(per===null?0:per<=12?4:per<=18?3:per<=25?2:1)+
    (pbr===null?0:pbr<=1.2?4:pbr<=1.8?3:pbr<=2.5?2:1)+
    (yieldPct===null?0:yieldPct>=4?3:yieldPct>=3?2:1);
   const liquidPoints=r.turnover>=100000000?3:r.turnover>=10000000?2:1;
   return {...r,screening:{per,pbr,dividendYield:yieldPct,checks,passed,known,
-   passedAll:known===3&&passed===3,ratioCoverage,
+   passedAll:r.kind==="stock"&&known===3&&passed===3,ratioCoverage,
    sortingPoints:valuationPoints+(mode==="daily"?liquidPoints:0),
    liquidityLabel:r.turnover>=100000000?"成交金額較高":r.turnover>=10000000?"成交金額中等":"成交金額較低"}};
  });
@@ -164,9 +178,24 @@ export async function searchOfficialCompanies(query,{limit=12,fetchJSON=json}={}
    name:String(x.CompanyAbbreviation??x["公司簡稱"]??x.CompanyName??x["公司名稱"]??"").trim(),
    industry:String(x["產業別"]??x["產業類別"]??x.Industry??x.IndustryName??"").trim()||null,market}));
  }));
- const hits=jobs.filter(j=>j.status==="fulfilled").flatMap(j=>j.value)
-  .filter(x=>/^[0-9]{4}$/.test(x.stock)&&!x.stock.startsWith("00")&&
-   (x.stock.includes(q)||x.name.toLocaleLowerCase("zh-TW").includes(q)));
+ const companies=jobs.filter(j=>j.status==="fulfilled").flatMap(j=>j.value)
+  .filter(x=>isCompanyCode(x.stock)&&
+   (x.stock.includes(q)||x.name.toLocaleLowerCase("zh-TW").includes(q)))
+  .map(x=>({...x,kind:"stock"}));
+ // ETF names are absent from the company registry. Match latest official quotes
+ // separately, with the same code/type validation used by the universe scanner.
+ const marketQuotes=[
+  ["上市","https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL","Code","Name"],
+  ["上櫃","https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes","SecuritiesCompanyCode","CompanyName"]
+ ];
+ const found=await Promise.allSettled(marketQuotes.map(async([market,url,id,nameKey])=>{
+  const rows=await fetchJSON(url);
+  if(!Array.isArray(rows))return [];
+  return rows.map(x=>({stock:String(x[id]??"").trim(),name:String(x[nameKey]??"").trim(),market,kind:"etf"}))
+   .filter(x=>securityKind(x.stock,{quotedName:x.name})==="etf"&&
+     (x.stock.toLocaleLowerCase().includes(q)||x.name.toLocaleLowerCase("zh-TW").includes(q)));
+ }));
+ const hits=[...companies,...found.filter(x=>x.status==="fulfilled").flatMap(x=>x.value)];
  return hits.sort((a,b)=>(a.stock===q?0:1)-(b.stock===q?0:1)||
   (a.name.toLocaleLowerCase("zh-TW")===q?0:1)-(b.name.toLocaleLowerCase("zh-TW")===q?0:1)||
   a.stock.localeCompare(b.stock)).slice(0,Math.min(20,Math.max(1,limit)));
