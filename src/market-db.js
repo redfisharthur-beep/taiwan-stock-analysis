@@ -170,6 +170,7 @@ export async function getIndustryPeers(db,company,period,limit=600){
  const result=await db.prepare(`SELECT c.stock,c.market,c.industry,c.name,p.metrics_json,p.market_date
  FROM companies c JOIN market_profiles p ON p.stock=c.stock
  WHERE c.industry=? AND c.market=? AND p.financial_period IS NOT NULL AND
+ json_extract(p.metrics_json,'$.verified')=1 AND
  p.market_date>=? ORDER BY c.stock LIMIT ?`)
  .bind(company.industry,company.market,new Date(Date.parse(period+"T00:00:00Z")-7*86400000).toISOString().slice(0,10),limit).all();
  return (result.results||[]).flatMap(x=>{try{return [{...x,marketDate:x.market_date,metrics:JSON.parse(x.metrics_json)}]}catch{return []}});
