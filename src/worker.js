@@ -11,13 +11,14 @@ const valid=s=>String(s||"").length>=4&&String(s||"").length<=6&&
 async function analyze(stock,env,override=null){
  if(!env.FINMIND_TOKEN)return reply({error:"尚未在 Cloudflare 設定 FINMIND_TOKEN Secret。"},503);
  const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],
-  ["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35]];
+  ["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35],
+  ["TaiwanStockPER",45],["TaiwanStockCashFlowsStatement",600],["TaiwanStockMarginPurchaseShortSale",30]];
  const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,stock,name,days)));
  const warnings=data.flatMap((r,i)=>r.status==="rejected"?
   [datasets[i][0]+"："+String(r.reason?.message||"取得失敗")]:[]);
  if(data[0].status==="rejected")return reply({error:"FinMind 歷史行情取得失敗，已停止評分。",warnings},503);
  const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
- const clean=normalize(rows(0),rows(1),rows(2),rows(3));
+ const clean=normalize(rows(0),rows(1),rows(2),rows(3),rows(4),rows(5),rows(6));
  if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings},404);
  const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
@@ -69,7 +70,7 @@ async function computeTopFive(env){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"on_demand_no_database",version:"0.5.0",time:new Date().toISOString()});
+  rankingMode:"on_demand_no_database",version:"0.6.0",time:new Date().toISOString()});
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
   const key=new Request(url.origin+"/api/top5");
