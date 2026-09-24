@@ -1,0 +1,10 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {scoreStock,indicators,num} from "../src/scoring.js";
+import {reconcile} from "../src/providers.js";
+test("missing data never fabricates a full score",()=>{const r=scoreStock({});assert.equal(r.score,null);assert.equal(r.coveredPoints,0);assert.equal(r.parts.news.covered,0)});
+test("fixed 50/10/20/20 weights are not reweighted when missing",()=>{const p=Array.from({length:90},(_,i)=>({date:new Date(Date.UTC(2025,0,1+i)).toISOString().slice(0,10),close:100+i*.1,volume:1000}));const r=scoreStock({prices:p});assert.equal(r.coveredPoints,20);assert.equal(r.score,null);assert.equal(r.parts.fundamental.max,50);assert.equal(r.parts.news.max,10);assert.equal(r.parts.chips.max,20);assert.equal(r.parts.technical.max,20)});
+test("technical indicators work on adequate history",()=>{const p=Array.from({length:80},(_,i)=>({date:String(i).padStart(3,"0"),close:100+i,volume:2000}));assert.ok(indicators(p).ma60>0)});
+test("cross-date quotes cannot be compared",()=>assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-23",close:100}]).state,"日期不一致"));
+test("same date mismatch is highlighted",()=>assert.equal(reconcile({date:"2026-09-24",close:100},[{date:"2026-09-24",close:101}]).state,"不一致"));
+test("missing numeric value is null, not zero",()=>{assert.equal(num(""),null);assert.equal(num("1,234.5"),1234.5)});
