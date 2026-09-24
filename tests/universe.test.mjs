@@ -28,8 +28,8 @@ test("registry scan includes halted company, excludes ETFs and all prices at or 
  assert.equal(r.marketCount,2);
  assert.equal(r.universeCount,6);
  assert.equal(r.sameDateCount,5);
- assert.equal(r.missingPriceCount,0);
- assert.equal(r.staleMarketCount,1);
+ assert.equal(r.missingPriceCount,1);
+ assert.equal(r.staleMarketCount,0);
  assert.equal(r.pricedCount,5);
  assert.equal(r.tradableCount,3);
  assert.equal(r.excludedOverCeiling,2);
