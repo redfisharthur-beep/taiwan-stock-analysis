@@ -136,7 +136,7 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
  const all=successful.flatMap(m=>m.rows);
  const sameDate=all.filter(r=>r.date===marketDate);
  const priced=sameDate.filter(r=>r.close>0&&Number.isFinite(r.close));
- const affordable=priced.filter(r=>r.close<=priceCeiling);
+ const affordable=priced.filter(r=>r.close<priceCeiling);
  const tradable=affordable.filter(r=>r.turnover>0&&r.volume>0);
  const warnings=jobs.flatMap((j,i)=>j.status==="rejected"?
   [markets[i].source+" 官方行情失敗："+String(j.reason?.message||j.reason)]:[]);
@@ -147,7 +147,7 @@ export async function scanOfficialUniverse({priceCeiling=500,fetchJSON=json}={})
    valuationAvailable:m.valuationAvailable})),warnings,
   universeCount:all.length,sameDateCount:sameDate.length,
   pricedCount:priced.length,affordableCount:affordable.length,
-  tradableCount:tradable.length,excludedOverCeiling:priced.filter(r=>r.close>priceCeiling).length,
+  tradableCount:tradable.length,excludedOverCeiling:priced.filter(r=>r.close>=priceCeiling).length,
   missingPriceCount:sameDate.length-priced.length,
   staleMarketCount:all.length-sameDate.length,
   stocks:tradable};
