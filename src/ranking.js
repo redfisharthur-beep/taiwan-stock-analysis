@@ -8,18 +8,27 @@ export function coverageSignature(score){
 export function explainHighScore(item){
  const v=item.value;
  switch(item.name){
- case "單月營收年增率":return "最近公布的單月營收年增率 "+v+"，符合此子項預設的成長區間。";
- case "單季 EPS":return "最近公布之單季每股盈餘 "+v+" 元，依預設 EPS 級距計分；尚未完成同產業校準。";
- case "近五交易日法人淨買賣":return "最近五交易日法人合計淨買賣 "+v+" 股；此數字尚未按流通股數標準化。";
+ case "單月營收年增率":return "最新營收年增 "+v+"。";
+ case "EPS 與去年同季":return v&&typeof v==="object"?
+   "單季 EPS "+v.eps+" 元，同比 "+(v.yoyPct===null?"待核":v.yoyPct+"%")+"。":"";
+ case "營業現金流（初步）":return "最近一期營業現金流 "+v+"（原始財報金額）。";
+ case "獲利品質與負債":return v&&typeof v==="object"?
+   "現金／稅前淨利 "+v.cashConversion+" 倍，負債比 "+v.debtRatioPct+"%。":"";
+ case "估值／本益比":return v&&typeof v==="object"?
+   "本益比 "+v.per+" 倍，近一年相對分位 "+v.oneYearPercentile+"%。":"";
+ case "法人近五日淨買賣／成交量":return v&&typeof v==="object"?
+   "法人五日淨買賣占同期間成交量 "+v.ratioPct+"%。":"";
+ case "400張以上持股三週趨勢":return v&&typeof v==="object"?
+   "集保400張以上占比 "+v.holderPct+"%，近兩週變化 "+v.changeTwoWeeksPct+" 個百分點。":"";
+ case "融資餘額變化":return "最近融資餘額增減 "+v+"（原始資料單位）。";
  case "均線趨勢":return v&&typeof v==="object"?
-  "收盤 "+v.close+" 元，20日均線 "+v.ma20+" 元，60日均線 "+v.ma60+" 元，依價格與均線位置計分。":"";
- case "RSI(14)":return "14日 RSI 為 "+v+"，依預設 RSI 區間計分。";
- case "MACD":return v&&typeof v==="object"?"MACD "+v.macd+"、訊號線 "+v.signal+"，依兩線關係計分。":"";
- case "量價":return "成交量為先前20交易日均量的 "+v+" 倍，搭配價格與均線評估。";
- case "估值／本益比":return "本益比 "+v+" 倍，依預設估值區間計分；跨產業不宜直接比較。";
- case "營業現金流（初步）":return "最近一期營業現金流 "+v+"，依是否為正數及與去年同期比較給分；尚未完成完整負債分析。";
- case "融資餘額變化":return "最新單日融資餘額增減 "+v+"（原資料單位），僅屬籌碼變化觀察，不代表未來漲跌。";
- default:return item.note||"依預設研究規則計分。";
+   "還原收盤 "+v.close+"、20日均線 "+v.ma20+"、60日均線 "+v.ma60+"。":"";
+ case "RSI(14)":return "RSI（還原價）"+v+"。";
+ case "MACD":return v&&typeof v==="object"?"MACD "+v.macd+"，訊號線 "+v.signal+"。":"";
+ case "量價":return "成交量相對前20日均量 "+v+" 倍。";
+ case "波動幅度與60日最大回撤":return v&&typeof v==="object"?
+   "近20日年化波動 "+v.annualizedVolatility20Pct+"%，60日最大回撤 "+v.maxDrawdown60Pct+"%。":"";
+ default:return item.note||"依明列的子項標準計分。";
  }
 }
 export function selectDailyLeaders(records,{marketDate,candidateCount=0}={}){
