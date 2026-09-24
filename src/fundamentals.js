@@ -5,7 +5,7 @@ const aliases={
  revenue:["Revenue","OperatingRevenue","TotalRevenue","RevenueFromContractsWithCustomers","OperatingRevenues"],
  grossProfit:["GrossProfit","GrossProfitLoss"],
  operatingIncome:["OperatingIncome","OperatingProfit","OperatingIncomeLoss"],
- netIncome:["NetIncome","NetIncomeLoss","ProfitLoss","NetIncomeLossAttributableToOwnersOfParent","ProfitLossAttributableToOwnersOfParent","ProfitLossFromContinuingOperations"],
+ netIncome:["IncomeAfterTaxes","NetIncome","NetIncomeLoss","ProfitLoss","NetIncomeLossAttributableToOwnersOfParent","ProfitLossAttributableToOwnersOfParent","ProfitLossFromContinuingOperations"],
  equity:["Equity","StockholdersEquity","TotalEquity","EquityAttributableToOwnersOfParent","StockholdersEquityAttributableToOwnersOfParent"],
  currentAssets:["CurrentAssets"],
  currentLiabilities:["CurrentLiabilities"],
@@ -32,26 +32,27 @@ export function summarizeFinancialStatements({financials=[],balance=[],cashFlows
  const revenue=fin("revenue"),gross=fin("grossProfit"),operating=fin("operatingIncome"),
   net=fin("netIncome"),assets=bal("totalAssets"),liabilities=bal("totalLiabilities");
  const currentAssets=bal("currentAssets"),currentLiabilities=bal("currentLiabilities");
- const matchingEquity=bal("equity",incomeDate);
- const reportedNet=marginDate?fin("netIncome",marginDate):null;
+ const roeDate=incomeDates.find(date=>date<=incomeDate&&
+  finite(series(financials,"netIncome",date))&&finite(bal("equity",date))&&bal("equity",date)>0)||null;
+ const matchingEquity=roeDate?bal("equity",roeDate):null;
+ const reportedNet=roeDate?fin("netIncome",roeDate):null;
  const cash=cashFlows.find(x=>x.date===cashDate&&x.type==="CashFlowsFromOperatingActivities")?.value??null;
  const latest=revenues.find(x=>x.date===revenueDate),prior=latest&&revenues.find(x=>
   Number(x.revenue_year)===Number(latest.revenue_year)-1&&Number(x.revenue_month)===Number(latest.revenue_month));
- return {incomeDate,balanceDate,cashDate,revenueDate,
+ return {incomeDate,roeDate,balanceDate,cashDate,revenueDate,
   revenue:finite(revenue)?revenue:null,grossProfit:finite(gross)?gross:null,
   operatingIncome:finite(operating)?operating:null,netIncome:finite(net)?net:null,
   grossMargin:ratio(gross,revenue),operatingMargin:ratio(operating,revenue),
   netMargin:ratio(net,revenue),
   // A matching reporting date is required; a missing equity is not zero.
-  quarterlyRoe:marginDate?ratio(reportedNet,matchingEquity):null,
+  quarterlyRoe:roeDate?ratio(reportedNet,matchingEquity):null,
   currentRatio:ratio(currentAssets,currentLiabilities,1),
   debtRatio:ratio(liabilities,assets),operatingCashFlow:finite(cash)?cash:null,
   monthlyRevenueYoY:finite(latest?.revenue)&&finite(prior?.revenue)&&prior.revenue>0?
    round((latest.revenue/prior.revenue-1)*100):null,
   missingReasons:{
-   netMargin:!marginDate?"同一期營收與稅後淨利資料不足":null,
-   quarterlyRoe:!marginDate?"同一期稅後淨利資料不足":
-    !finite(matchingEquity)||matchingEquity<=0?"同一期權益資料不足":null
+   netMargin:!marginDate?"同一期營業收入與稅後淨利資料不足":null,
+   quarterlyRoe:!roeDate?"同一期權益與稅後淨利無法對齊":null
   },
   note:"淨利率採同一報表期間的營收與淨利；ROE僅在報表期間相同且權益為正時顯示，未證實單季口徑不推算成年化報酬。"};
 }
