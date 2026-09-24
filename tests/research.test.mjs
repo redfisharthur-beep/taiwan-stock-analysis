@@ -1,5 +1,5 @@
 import test from "node:test";import assert from "node:assert/strict";
-import {concentration} from "../src/holding.js";
+import {concentration,archivedHoldingForStock} from "../src/holding.js";
 import {eventKind,parseDisclosures,corroborate,scoreNews,researchNews} from "../src/news.js";
 import {assessUndervaluation} from "../src/value.js";
 function weekly(date,largePct=10){
@@ -74,4 +74,20 @@ test("cheap PE alone or poor cash flow cannot trigger undervalued label",()=>{
  detail.score.parts.fundamental.items.find(x=>x.name==="營業現金流（初步）").value=100;
  row.screening.pbr=3;
  assert.equal(assessUndervaluation(row,detail,"2026-09-24").valuationFlag,"unconfirmed");
+});
+
+test("archived official-origin TDCC records reconstruct real three-week holdings without D1",async()=>{
+ const dates=["2026-09-04","2026-09-11","2026-09-18"],header="資料日期,證券代號,持股分級,人數,股數,占集保庫存數比例%";
+ const mock=async url=>{
+  if(String(url).includes("api.github.com"))return {ok:true,json:async()=>dates.map(d=>({name:d+".csv"}))};
+  const date=dates.find(d=>String(url).includes(d+".csv"));
+  const csv=[header,...[12,13,14,15].map(level=>date.replaceAll("-","")+",2330  ,"+level+",8,1000000,"+
+   (level===12?dates.indexOf(date)+1:2)),date.replaceAll("-","")+",2317,12,8,1000000,70"].join("\n");
+  return {ok:true,headers:{get:()=>String(csv.length)},arrayBuffer:async()=>new TextEncoder().encode(csv).buffer};
+ };
+ const result=await archivedHoldingForStock("2330","2026-09-24",mock);
+ assert.equal(result.trend.weeks.length,3);
+ assert.equal(result.trend.risingWeeks,2);
+ assert.match(result.source,/第三方|公開備份/);
+ assert.equal(await archivedHoldingForStock("2317","2026-09-24",mock),null);
 });
