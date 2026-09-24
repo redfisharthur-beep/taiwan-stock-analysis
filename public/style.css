@@ -125,7 +125,7 @@ footer{text-align:center;border-top:1px solid #dfe6dc;margin-top:24px;padding:35
 .universe-form select{font:inherit;border:1px solid #d7e1d9;border-radius:10px;background:#fffefa;color:#344740;padding:10px}
 .universe-form input{min-width:130px;flex:1;width:200px}
 .universe-list{display:grid;gap:8px;margin-top:12px}
-.universe-entry{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr) minmax(0,1.1fr) auto;gap:12px;align-items:center;border:1px solid #dde5e8;background:#fffefa;padding:12px 14px;border-radius:12px}
+.universe-entry{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,.9fr) minmax(0,1.2fr) minmax(0,.8fr) auto;gap:12px;align-items:center;border:1px solid #dde5e8;background:#fffefa;padding:12px 14px;border-radius:12px}
 .universe-entry .stock-id{font-size:18px;font-weight:700;color:#344d47}
 .universe-entry .stock-info{font-size:14px;font-weight:400;color:#657a71}
 .universe-entry .stock-score{font-size:18px;color:#354e41}
