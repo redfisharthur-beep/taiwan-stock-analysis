@@ -79,7 +79,7 @@ async function refreshDaily(){
     body.append(title,sub,points);
     if(s.reasons?.length){for(const reason of s.reasons.slice(0,4)){
       let value=reason.value===null?"":typeof reason.value==="object"?JSON.stringify(reason.value):String(reason.value);
-      body.append(node("p",reason.name+"："+value+"；依已公布的研究規則獲 "+reason.score+"/"+reason.max+" 分。"+reason.note+"（"+(reason.source||"來源未明")+"，"+(reason.date||"日期未明")+"）","daily-reason"));
+      body.append(node("p",reason.name+"："+(reason.reason||value)+" 獲 "+reason.score+"/"+reason.max+" 分。（"+(reason.source||"來源未明")+"，"+(reason.date||"日期未明")+"）","daily-reason"));
     }}else body.append(node("p","目前沒有完成驗證的高分理由可列；請先補齊資料。","daily-reason"));
     score.append(node("span",s.score===null?s.observedPoints+" 分":s.score+" / 100"),
       node("small",s.score===null?"子項小計 · 涵蓋 "+s.coveredPoints+"/100":"完整綜合得分"));
