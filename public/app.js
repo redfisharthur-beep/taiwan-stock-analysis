@@ -170,7 +170,8 @@ function present(d){
  if(!isFund){renderFinancials(d);renderComparison(d)}
   const stats=$("overview");stats.replaceChildren();
  const displayedStats=isFund?[
-  ["產品類別","ETF"],["分析範圍","市場價量"],["收盤日期",d.finmind.date]
+  ["產品類別","ETF"],["ETF 技術分數",d.score.score===null?"指標未齊全":numberText(d.score.score)+" / 100"],
+  ["技術指標涵蓋",d.score.parts.technical.covered+" / 30"],["收盤日期",d.finmind.date]
  ]:[
   ["基本面",d.score.parts.fundamental.earned+" / 40"],
   ["技術面",d.score.parts.technical.earned+" / 30"],
