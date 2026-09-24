@@ -1,3 +1,17 @@
+# v0.11：永豐 Shioaji 已加入私人雲端連線程式（待你在 Render 設金鑰部署）
+
+已於同一 GitHub 倉庫新增 `sinopac_gateway/`（Render Python 3.11 + FastAPI + Shioaji 唯讀快照服務），以及 Cloudflare `src/sinopac.js` 與網站個股頁「永豐 Shioaji 私人行情測試」。**你不需要讓家裡電腦開機，也不需要 D1。**
+
+- Render 服務 Root Directory 設 `sinopac_gateway`，Build Command `pip install -r requirements.txt`，Start Command `uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1`。
+- Render Environment：`SJ_API_KEY`、`SJ_SEC_KEY`、`SJ_BRIDGE_TOKEN`。券商金鑰只保留在 Render，**不要貼到 GitHub 或聊天**。
+- Cloudflare Worker 的 Variables and Secrets：`SJ_GATEWAY_URL`（Render 提供的根網址）、`SJ_BRIDGE_TOKEN`（與 Render 相同的至少 32 字元隨機碼）、`SJ_OWNER_TEST_TOKEN`（另外產生的至少 32 字元私人測試碼）。
+- 部署後，`/api/health` 顯示 `version:"0.11.0"`、`sinopacConfigured:true`；然後在台股研究室查詢 2330，展開「永豐 Shioaji 私人行情測試」，只輸入你**自行設定的私人測試碼**，查詢唯讀行情。
+- 公開網站的 FinMind／官方評分與兩份觀察清單仍不使用個人券商報價。永豐私人快照目前僅供本人測試；是否能讓親友查看，必須先確認其個人行情再展示授權。Shioaji 快照不是即時推播或官方收盤價，也不能補足消息面分數。
+
+**完整操作步驟：** [sinopac_gateway/README.md](sinopac_gateway/README.md)。首次登入 Shioaji 只有 Render 實際啟動並設定正確金鑰後才會發生；GitHub 單元測試不能證明你的帳戶已登入永豐。
+
+---
+
 # v0.10 技術面覆蓋修正與可追查資料診斷
 
 當 FinMind `TaiwanStockPriceAdj` 還原價資料集沒有回應、日期較原始成交價晚更新、或與原始價不能對齊至少 61 個交易日時，舊版直接將所有技術指標標為「未涵蓋」，造成已有真實歷史行情的股票仍顯示技術面 0/20。
