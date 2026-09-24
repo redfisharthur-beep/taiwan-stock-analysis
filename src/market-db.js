@@ -66,25 +66,25 @@ export async function getMarketSummary(db){
 // ETF 0–100 display is *fund-specific 30-point technical model normalized to 100*,
 // not a fictitious issuer EPS or 40/30/30 corporate composite.
 export async function getVerifiedTopFive(db){
- const base=\`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date,
+ const base=`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date,
   c.per,c.pbr,c.dividend_yield,p.score_json,p.metrics_json
   FROM companies c JOIN market_profiles p ON p.stock=c.stock
   WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)
    AND c.close>0 AND c.quote_date IS NOT NULL AND p.market_date=c.quote_date
    AND c.quote_date=(SELECT MAX(c2.quote_date) FROM companies c2
      WHERE c2.market=c.market AND c2.last_scan_at=c.last_scan_at)
-   AND json_extract(p.metrics_json,'$.verified')=1\`;
- const stockSql=base+\` AND COALESCE(c.industry,'')!='ETF'
+   AND json_extract(p.metrics_json,'$.verified')=1`;
+ const stockSql=base+` AND COALESCE(c.industry,'')!='ETF'
    AND json_extract(p.score_json,'$.coveragePercent')=100
    AND json_type(p.score_json,'$.score') IN ('integer','real')
    AND json_extract(p.score_json,'$.parts.fundamental.covered')=40
    AND json_extract(p.score_json,'$.parts.technical.covered')=30
    AND json_extract(p.score_json,'$.parts.chips.covered')=30
-   ORDER BY CAST(json_extract(p.score_json,'$.score') AS REAL) DESC,c.stock ASC LIMIT 5\`;
- const etfSql=base+\` AND c.industry='ETF'
+   ORDER BY CAST(json_extract(p.score_json,'$.score') AS REAL) DESC,c.stock ASC LIMIT 5`;
+ const etfSql=base+` AND c.industry='ETF'
    AND json_extract(p.score_json,'$.parts.technical.covered')=30
    AND json_type(p.score_json,'$.parts.technical.earned') IN ('integer','real')
-   ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5\`;
+   ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5`;
  const [stockRows,etfRows]=await Promise.all([db.prepare(stockSql).all(),db.prepare(etfSql).all()]);
  const candidates=[];
  for(const r of stockRows.results||[]){
