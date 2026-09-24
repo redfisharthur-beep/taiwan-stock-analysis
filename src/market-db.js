@@ -26,17 +26,74 @@ export async function saveUniverse(db,universe){
    warning:universe.warnings}),ts).run();
  return universe.universeCount;
 }
+// Counts are scoped to the latest successfully saved official two-market snapshot.
 export async function getMarketSummary(db){
  const [company,profile,state]=await Promise.all([
-  db.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN quote_date=(SELECT MAX(quote_date) FROM companies) AND close>0 AND turnover>0 AND volume>0 THEN 1 ELSE 0 END) AS eligible FROM companies").first(),
-  db.prepare("SELECT COUNT(*) AS profiles,SUM(CASE WHEN financial_period IS NOT NULL THEN 1 ELSE 0 END) AS finance,SUM(CASE WHEN technical_date IS NOT NULL THEN 1 ELSE 0 END) AS technical,SUM(CASE WHEN chips_date IS NOT NULL THEN 1 ELSE 0 END) AS chips,MAX(fetched_at) AS lastResearch FROM market_profiles").first(),
+  db.prepare(`SELECT COUNT(*) AS total,
+   SUM(CASE WHEN close>0 AND quote_date IS NOT NULL THEN 1 ELSE 0 END) AS eligible,
+   SUM(CASE WHEN close IS NULL OR close<=0 THEN 1 ELSE 0 END) AS noQuote,
+   SUM(CASE WHEN industry='ETF' THEN 1 ELSE 0 END) AS etf,
+   SUM(CASE WHEN last_attempt IS NOT NULL THEN 1 ELSE 0 END) AS attempted,
+   SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed
+   FROM companies WHERE last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
+  db.prepare(`SELECT COUNT(p.stock) AS profiles,
+   SUM(CASE WHEN p.financial_period IS NOT NULL THEN 1 ELSE 0 END) AS finance,
+   SUM(CASE WHEN p.technical_date IS NOT NULL THEN 1 ELSE 0 END) AS technical,
+   SUM(CASE WHEN p.chips_date IS NOT NULL THEN 1 ELSE 0 END) AS chips,
+   SUM(CASE WHEN c.industry!='ETF' AND json_extract(p.score_json,'$.coveragePercent')=100
+     AND json_extract(p.score_json,'$.score') IS NOT NULL
+     AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullCoverage,
+   MAX(p.fetched_at) AS lastResearch
+   FROM companies c JOIN market_profiles p ON p.stock=c.stock
+   WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
   db.prepare("SELECT value,updated_at FROM sync_state WHERE key='universe'").first()]);
- let original=null;try{original=state?.value?JSON.parse(state.value):null;}catch{}
- return {configured:true,total:company?.total||0,eligible:company?.eligible||0,
-  profiles:profile?.profiles||0,finance:profile?.finance||0,technical:profile?.technical||0,
+ let original=null;try{original=state?.value?JSON.parse(state.value):null}catch{}
+ const total=company?.total||0,profiles=profile?.profiles||0;
+ return {configured:true,total,eligible:company?.eligible||0,noQuote:company?.noQuote||0,
+  etf:company?.etf||0,attempted:company?.attempted||0,failed:company?.failed||0,
+  profiles,unprocessed:Math.max(0,total-profiles),fullCoverage:profile?.fullCoverage||0,
+  finance:profile?.finance||0,technical:profile?.technical||0,
   chips:profile?.chips||0,lastResearch:profile?.lastResearch||null,
-  marketDate:original?.date||null,markets:original?.markets||[],warnings:original?.warning||[],
-  updatedAt:state?.updated_at||null,complete:!!original?.count&&profile?.profiles>=original.count};
+  marketDate:original?.date||null,markets:original?.markets||[],
+  warnings:original?.warning||[],updatedAt:state?.updated_at||null,
+  complete:!!total&&profiles===total,stockScope:"上市、上櫃公司及可辨認ETF"};
+}
+// Paginate on the server: never send thousands of company profiles in one response.
+export async function getMarketPage(db,{market="all",query="",page=1,pageSize=30}={}){
+ const filter=["上市","上櫃"].includes(market)?" AND c.market=?":
+  market==="ETF"?" AND c.industry='ETF'":
+  market==="股票"?" AND (c.industry IS NULL OR c.industry!='ETF')":"";
+ const term=String(query||"").trim().slice(0,30);
+ const search=term?" AND (c.stock LIKE ? ESCAPE '\\\\' OR c.name LIKE ? ESCAPE '\\\\')":"";
+ const clause=` WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)${filter}${search}`;
+ const args=(["上市","上櫃"].includes(market)?[market]:[]).concat(term?[
+  "%"+term.replace(/[\\\\%_]/g,"\\\\$&")+"%",
+  "%"+term.replace(/[\\\\%_]/g,"\\\\$&")+"%"]:[]);
+ const size=Math.max(1,Math.min(50,Math.trunc(Number(pageSize))||30));
+ const p=Math.max(1,Math.min(10000,Math.trunc(Number(page))||1));
+ const total=(await db.prepare("SELECT COUNT(*) AS n FROM companies c"+clause).bind(...args).first())?.n||0;
+ const result=await db.prepare(`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date AS quoteDate,
+  c.last_profile_at AS analyzedAt,c.last_attempt AS attemptedAt,c.last_error AS error,
+  p.market_date AS researchDate,p.score_json AS scoreJSON,p.metrics_json AS metricsJSON
+  FROM companies c LEFT JOIN market_profiles p ON p.stock=c.stock
+  ${clause}
+  ORDER BY CASE WHEN c.market='上市' THEN 0 ELSE 1 END,c.stock
+  LIMIT ? OFFSET ?`).bind(...args,size,(p-1)*size).all();
+ return {total,page:p,pageSize:size,pages:Math.ceil(total/size),rows:(result.results||[]).map(r=>{
+  let score=null,verified=false;try{score=r.scoreJSON?JSON.parse(r.scoreJSON):null}catch{}
+  try{verified=!!(r.metricsJSON&&JSON.parse(r.metricsJSON)?.verified)}catch{}
+  const covered=typeof score?.coveragePercent==="number"?score.coveragePercent:
+   typeof score?.coveredPoints==="number"?score.coveredPoints:0;
+  const isETF=r.industry==="ETF";
+  return {stock:r.stock,name:r.name,market:r.market,kind:isETF?"etf":"stock",
+   price:r.close,quoteDate:r.quoteDate,analyzedAt:r.analyzedAt,
+   researchDate:r.researchDate,coverage:isETF?null:covered,
+   score:!isETF&&verified&&covered===100&&r.researchDate===r.quoteDate?score?.score??null:null,
+   technicalCoverage:isETF?score?.parts?.technical?.covered??0:null,
+   status:r.error?"error":!r.analyzedAt?"pending":
+    r.researchDate!==r.quoteDate?"stale":isETF?"analyzed":verified&&covered===100?"complete":"partial",
+   error:r.error?String(r.error).slice(0,100):null};
+ })};
 }
 export async function searchSavedStocks(db,query,limit=12){
  const q=String(query||"").trim().slice(0,30);
@@ -60,14 +117,24 @@ export async function getSavedProfile(db,stock){
   score:parse(r.score_json),metrics:parse(r.metrics_json),
   candles:parse(r.candles_json),datasetHealth:parse(r.dataset_health_json)};
 }
+// First pass covers every quoted security before retrying one failed ticker.
 export async function claimNextCompany(db){
- const cutoff=new Date(Date.now()-30*60000).toISOString();
+ const failureCooldown=new Date(Date.now()-6*3600000).toISOString();
+ const refreshCooldown=new Date(Date.now()-20*3600000).toISOString();
  const claimed=await db.prepare(`UPDATE companies SET last_attempt=?
- WHERE stock=(SELECT stock FROM companies WHERE close>0 AND quote_date IS NOT NULL
- AND (last_attempt IS NULL OR last_attempt<?)
- ORDER BY COALESCE(last_profile_at,'') ASC,COALESCE(last_attempt,'') ASC,stock LIMIT 1)
- RETURNING stock,name,market,industry,close,quote_date AS date,turnover,volume,per,pbr,dividend_yield AS dividendYield,valuation_date AS valuationDate`)
- .bind(now(),cutoff).first();
+ WHERE stock=(SELECT stock FROM companies
+  WHERE last_scan_at=(SELECT MAX(last_scan_at) FROM companies)
+   AND close>0 AND quote_date IS NOT NULL
+   AND ((last_attempt IS NULL)
+    OR (last_profile_at IS NULL AND last_attempt<?)
+    OR (last_profile_at IS NOT NULL AND last_attempt<? AND
+      (last_error IS NOT NULL OR substr(last_profile_at,1,10)<quote_date))))
+  ORDER BY CASE WHEN last_attempt IS NULL THEN 0
+    WHEN last_profile_at IS NULL THEN 1 ELSE 2 END,
+    COALESCE(last_profile_at,last_attempt,'') ASC,stock LIMIT 1)
+ RETURNING stock,name,market,industry,close,quote_date AS date,turnover,volume,
+ per,pbr,dividend_yield AS dividendYield,valuation_date AS valuationDate`)
+ .bind(now(),failureCooldown,refreshCooldown).first();
  return claimed||null;
 }
 export async function saveResearch(db,company,clean,body){
