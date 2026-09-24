@@ -1,4 +1,4 @@
-:root{font-family:"Zen Maru Gothic","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;background:#f8f7f4;color:#4f6059}
+:root{font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;background:#f8f7f4;color:#4f6059}
 *{box-sizing:border-box}body{margin:0;font-size:19px;line-height:1.65;font-weight:700;letter-spacing:0}
 .shell{max-width:1040px;margin:auto;padding:0 20px}
 .top,.logo,.stock-head,.card-head,.row-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
