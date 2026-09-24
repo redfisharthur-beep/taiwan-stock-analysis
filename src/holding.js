@@ -9,19 +9,31 @@ export function concentration(rows,stock,marketDate){
    pct:num(x["占集保庫存數比例%"]??x.percent),shares:num(x["股數"]??x.unit)}))
   .filter(x=>x.date&&x.level>=1&&x.level<=17&&x.pct!==null&&x.pct>=0&&x.pct<=100&&x.shares!==null&&x.shares>=0);
  const dates=[...new Set(found.map(x=>x.date))].filter(d=>d<=marketDate).sort();
- const date=dates.at(-1);
- if(!date||Math.round((Date.parse(marketDate)-Date.parse(date))/86400000)>35)return null;
- const same=found.filter(x=>x.date===date),large=same.filter(x=>x.level>=12&&x.level<=15);
- if(large.length!==4||new Set(large.map(x=>x.level)).size!==4)return null;
- const share=large.reduce((a,x)=>a+x.pct,0);
- if(!(share>=0&&share<=100))return null;
- const before=dates.at(-2),prev=found.filter(x=>x.date===before&&x.level>=12&&x.level<=15);
- const prevShare=prev.length===4&&new Set(prev.map(x=>x.level)).size===4?
-   prev.reduce((a,x)=>a+x.pct,0):null;
- const change=prevShare===null?null:Math.round((share-prevShare)*100)/100;
- return {date,share:Math.round(share*100)/100,change,previousDate:prevShare===null?null:before,
+ const weeks=dates.slice(-4).map(date=>{
+  const tier=found.filter(x=>x.date===date&&x.level>=12&&x.level<=15);
+  if(tier.length!==4||new Set(tier.map(x=>x.level)).size!==4)return null;
+  const share=tier.reduce((a,x)=>a+x.pct,0);
+  return share>=0&&share<=100?{date,share:Math.round(share*100)/100}:null;
+ }).filter(Boolean);
+ if(weeks.length===0)return null;
+ const latest=weeks.at(-1),age=Math.round((Date.parse(marketDate)-Date.parse(latest.date))/86400000);
+ if(age<0||age>14)return null;
+ // For a trend score require three consecutive weekly snapshots, not a single concentration point.
+ let trend=null;
+ if(weeks.length>=3){
+  const recent=weeks.slice(-3);
+  const intervals=recent.slice(1).map((w,i)=>Math.round((Date.parse(w.date)-Date.parse(recent[i].date))/86400000));
+  if(intervals.every(d=>d>=5&&d<=10)){
+   const changes=recent.slice(1).map((w,i)=>Math.round((w.share-recent[i].share)*100)/100);
+   trend={weeks:recent,weeklyChanges:changes,changeTwoWeeks:Math.round((latest.share-recent[0].share)*100)/100,
+    risingWeeks:changes.filter(v=>v>0).length,fallingWeeks:changes.filter(v=>v<0).length};
+  }
+ }
+ return {date:latest.date,share:latest.share,change:trend?.weeklyChanges.at(-1)??null,
+  trend,previousDate:trend?.weeks.at(-2)?.date??null,
   source:"TDCC 集保戶股權分散表",sourceUrl:url,
-  note:"400張以上集保庫存占比，不等於前十大股東持股；不同產業或公司不宜直接比較"};
+  note:trend?"近三週400張以上集保占比與連續增減，非前十大股東、也非股價預測":
+   "至少需三期連續有效週資料才能評股權趨勢；單週比例只顯示不給分"};
 }
 function parseCSV(source){const lines=source.replace(/^\uFEFF/,"").split(/\r?\n/);
  if(lines.length<2)throw Error("empty CSV");
