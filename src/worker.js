@@ -6,7 +6,7 @@ import {researchNews} from "./news.js";
 import {assessUndervaluation} from "./value.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
-import {hasMarketDB,saveUniverse,getMarketSummary,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
+import {hasMarketDB,saveUniverse,getMarketSummary,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers,syncHoldingSnapshots,savedHolding} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
@@ -161,7 +161,7 @@ async function performScheduled(controller,env){
  const db=env.MARKET_DB,cron=controller.cron||"";
  if(cron==="0 11 * * MON-FRI"){
   const universe=await scanOfficialUniverse();
-  if(universe.marketCount!==2||universe.markets.some(x=>!x.registryAvailable||x.date!==universe.marketDate))
+  if(universe.marketCount!==2||universe.markets.some(x=>!x.registryAvailable))
    throw Error("兩市場名冊或日期不完整，保留先前已核實的資料庫行情");
   await saveUniverse(db,universe);
   return;
@@ -174,7 +174,7 @@ async function performScheduled(controller,env){
  const summary=await getMarketSummary(db);
  if(summary.total===0){
   const universe=await scanOfficialUniverse();
-  if(universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable&&x.date===universe.marketDate))
+  if(universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable))
    await saveUniverse(db,universe);
   return;
  }
@@ -294,6 +294,34 @@ export default {async fetch(request,env,ctx){
    if(!results.length&&hasMarketDB(env))results=await searchSavedStocks(env.MARKET_DB,q);
    return reply({results},200,300);
   }catch(error){return reply({results:[],error:"股票名冊暫不可用"},503)}
+ }
+ if(url.pathname==="/api/universe"){
+  const market=(url.searchParams.get("market")||"all").trim();
+  if(!["all","上市","上櫃","ETF","股票"].includes(market))
+   return reply({error:"無效市場篩選"},400);
+  const query=(url.searchParams.get("q")||"").trim().slice(0,30);
+  const page=Math.max(1,Math.min(10000,Number.parseInt(url.searchParams.get("page")||"1",10)||1));
+  const pageSize=30;
+  try{
+   if(hasMarketDB(env)){
+    const data=await getMarketPage(env.MARKET_DB,{market,query,page,pageSize});
+    return reply({...data,market,query,configured:true},200,90);
+   }
+   // Without D1 show only verified public identity/quotes; never invent analyzed coverage.
+   const snapshot=await scanOfficialUniverse();
+   const matches=snapshot.allStocks.filter(r=>(market==="all"||
+     market==="ETF"&&r.kind==="etf"||market==="股票"&&r.kind==="stock"||
+     (market==="上市"||market==="上櫃")&&r.market===market)&&
+     (!query||r.stock.includes(query)||r.name.includes(query)));
+   const start=(page-1)*pageSize;
+   return reply({configured:false,market,query,page,pageSize,total:matches.length,
+    pages:Math.ceil(matches.length/pageSize),marketDate:snapshot.marketDate,
+    warnings:snapshot.warnings,rows:matches.slice(start,start+pageSize).map(r=>({
+     stock:r.stock,name:r.name,market:r.market,kind:r.kind,price:r.close,
+     quoteDate:r.date,coverage:null,score:null,technicalCoverage:null,
+     status:r.close>0?"unscored":"no_quote"
+    }))},200,300);
+  }catch(error){return reply({error:"全市場名冊暫不可用",detail:String(error.message||error)},503)}
  }
  if(url.pathname==="/api/market-status"){
   if(!hasMarketDB(env))return reply({configured:false,reason:"尚未綁定並遷移 D1 市場資料庫"},200,60);
