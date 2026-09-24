@@ -46,9 +46,14 @@ export async function getMarketSummary(db){
    SUM(CASE WHEN c.industry='ETF' AND p.market_date=c.quote_date AND c.close>0
      AND json_extract(p.score_json,'$.parts.technical.covered')=30
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullETFTechnical,
-   SUM(CASE WHEN COALESCE(c.industry,'')!='ETF' AND p.market_date=c.quote_date AND json_extract(p.score_json,'$.coveragePercent')=100
-     AND json_extract(p.score_json,'$.score') IS NOT NULL
+   SUM(CASE WHEN COALESCE(c.industry,'')!='ETF' AND c.close>0 AND p.market_date=c.quote_date
+     AND json_extract(p.score_json,'$.coveragePercent')=100
+     AND json_type(p.score_json,'$.score') IN ('integer','real')
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullCoverage,
+   SUM(CASE WHEN c.industry='ETF' AND c.close>0 AND p.market_date=c.quote_date
+     AND json_extract(p.score_json,'$.parts.technical.covered')=30
+     AND json_type(p.score_json,'$.parts.technical.earned') IN ('integer','real')
+     AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullETF,
    MAX(p.fetched_at) AS lastResearch
    FROM companies c JOIN market_profiles p ON p.stock=c.stock
    WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
