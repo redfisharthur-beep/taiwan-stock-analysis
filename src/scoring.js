@@ -66,17 +66,31 @@ function financialQuality(financials,cashFlows,balance,marketDate){
    "現金流／稅前淨利為同一期累計口徑，負債比為報表期末比率"};
 }
 function institutionalRatio(institutional,prices,marketDate){
- const p=[...prices].filter(x=>x.date<=marketDate).sort((a,b)=>a.date.localeCompare(b.date)).slice(-5);
- if(p.length!==5||!fresh(marketDate,p.at(-1).date,10))return null;
+ const days=[...prices].filter(x=>x.date<=marketDate).sort((a,b)=>a.date.localeCompare(b.date));
+ if(days.length<5)return null;
+ // Institutional data updates later than close. Use the five latest CONSECUTIVE
+ // trading sessions for which all institutional rows are actually published.
+ // Permit two later price sessions only; never claim a delayed sample is current.
+ const reported=new Set(institutional.filter(r=>r.date<=marketDate&&
+  num(r.buy)!==null&&num(r.sell)!==null).map(r=>r.date));
+ let latest=-1;
+ for(let i=days.length-1;i>=0;i--){if(reported.has(days[i].date)){latest=i;break}}
+ if(latest<4||days.length-1-latest>2)return null;
+ const period=days.slice(latest-4,latest+1);
+ if(!fresh(marketDate,period.at(-1).date,10))return null;
  let net=0,total=0;
- for(const day of p){
+ for(const day of period){
   if(!(num(day.volume)>0))return null;
   const records=institutional.filter(r=>r.date===day.date&&num(r.buy)!==null&&num(r.sell)!==null);
   if(!records.length)return null;
-  net+=records.reduce((sum,r)=>sum+num(r.buy)-num(r.sell),0);total+=num(day.volume);
+  const categories=records.map(r=>String(r.name||""));
+  if(new Set(categories).size!==categories.length)return null;
+  net+=records.reduce((sum,r)=>sum+num(r.buy)-num(r.sell),0);
+  total+=num(day.volume);
  }
- if(total<=0)return null;
- return {date:p.at(-1).date,net:round(net),volume:round(total),ratio:round(net/total*100)};
+ return total>0?{date:period.at(-1).date,net:round(net),volume:round(total),
+  ratio:round(net/total*100),tradingDates:period.map(x=>x.date),
+  delayedTradingSessions:days.length-1-latest}:null;
 }
 export function scoreStock({
  prices=[],adjusted=[],revenues=[],financials=[],institutional=[],valuation=[],
@@ -169,8 +183,10 @@ export function scoreStock({
  ];
  const chips=[
   part("法人近五日淨買賣／成交量",10,flowScore,flowStats?
-   {netShares:flowStats.net,totalShares:flowStats.volume,ratioPct:flowStats.ratio}:null,
-   flowStats?.date,flowStats?"FinMind":null,"同五個交易日法人買賣超占總成交股數比例；缺任一天資料即不計分"),
+   {netShares:flowStats.net,totalShares:flowStats.volume,ratioPct:flowStats.ratio,
+    tradingDates:flowStats.tradingDates,delayedSessions:flowStats.delayedTradingSessions}:null,
+   flowStats?.date,flowStats?"FinMind":null,
+   "以最近五個連續已公布法人資料的交易日計算；若成交行情較新最多容許兩個交易日落差，絕不補造未公告日期"),
   part("400張以上持股三週趨勢",5,holderScore,trend?
    {holderPct:holding.share,weeklyChangesPct:trend.weeklyChanges,
     changeTwoWeeksPct:trend.changeTwoWeeks}:null,holding?.date,holding?.source,
