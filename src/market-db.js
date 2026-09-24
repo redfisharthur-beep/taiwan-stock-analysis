@@ -94,42 +94,38 @@ export async function getVerifiedTopFive(db){
    AND json_type(p.score_json,'$.parts.technical.earned') IN ('integer','real')
    ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5`;
  const [stockRows,etfRows]=await Promise.all([db.prepare(stockSql).all(),db.prepare(etfSql).all()]);
- const candidates=[];
+ const stocks=[],etfs=[];
  for(const r of stockRows.results||[]){
   let score;try{score=JSON.parse(r.score_json)}catch{continue}
   if(score?.coveragePercent!==100||!Number.isFinite(score.score)||
     ["fundamental","technical","chips"].some(k=>score.parts?.[k]?.covered!==score.parts?.[k]?.max))
    continue;
-  const basic=score.parts.fundamental.items||[],metric=name=>basic.find(x=>x.name===name)?.value??null;
+  const items=score.parts.fundamental.items||[];
+  const metric=name=>items.find(x=>x.name===name)?.value??null;
   const eps=metric("EPS 與去年同季"),cash=metric("營業現金流（初步）"),
    leverage=metric("獲利品質與負債");
-  candidates.push({stock:r.stock,name:r.name,market:r.market,kind:"stock",
+  stocks.push({stock:r.stock,name:r.name,market:r.market,kind:"stock",
    close:r.close,date:r.quote_date,score:score.score,scoreModel:"company_40_30_30",
    newsDelta:score.newsDelta??0,coveredPoints:100,
    parts:Object.fromEntries(["fundamental","technical","chips"].map(k=>
     [k,{earned:score.parts[k].earned,covered:score.parts[k].covered,max:score.parts[k].max}])),
    screening:{per:r.per,pbr:r.pbr,dividendYield:r.dividend_yield},
-   checks:[{label:"EPS 為正",status:eps?.eps>0?"pass":"fail"},
-    {label:"營業現金流為正",status:cash>0?"pass":"fail"},
-    {label:"負債比 70% 以下",status:leverage.debtRatioPct<=70?"pass":"fail"}],
    financials:{eps:eps?.eps??null,operatingCashFlow:cash,
-    debtRatioPct:leverage?.debtRatioPct??null},detailVerified:true,
-   valuationFlag:"not_evaluated"});
+    debtRatioPct:leverage?.debtRatioPct??null},detailVerified:true});
  }
  for(const r of etfRows.results||[]){
   let score;try{score=JSON.parse(r.score_json)}catch{continue}
   const t=score?.parts?.technical;
   if(t?.covered!==30||!Number.isFinite(t.earned))continue;
-  const fundScore=Math.round(t.earned/30*10000)/100;
-  candidates.push({stock:r.stock,name:r.name,market:r.market,kind:"etf",
-   close:r.close,date:r.quote_date,score:fundScore,scoreModel:"etf_technical_30_normalized",
-   coveredPoints:100,technicalScore:t.earned,technicalCoverage:t.covered,
-   screening:{},checks:[],detailVerified:true});
+  etfs.push({stock:r.stock,name:r.name,market:r.market,kind:"etf",
+   close:r.close,date:r.quote_date,technicalScore:t.earned,technicalCoverage:30,
+   scoreModel:"etf_technical_30"});
  }
- candidates.sort((a,b)=>b.score-a.score||a.stock.localeCompare(b.stock));
- return {stocks:candidates.slice(0,5).map((x,i)=>({...x,rank:i+1})),
-  selectedStocks:candidates.filter(x=>x.kind==="stock").length,
-  selectedETFs:candidates.filter(x=>x.kind==="etf").length};
+ stocks.sort((a,b)=>b.score-a.score||a.stock.localeCompare(b.stock));
+ etfs.sort((a,b)=>b.technicalScore-a.technicalScore||a.stock.localeCompare(b.stock));
+ return {stocks:stocks.slice(0,5).map((x,i)=>({...x,rank:i+1})),
+  etfs:etfs.slice(0,5).map((x,i)=>({...x,rank:i+1})),
+  selectedStocks:stocks.length,selectedETFs:etfs.length};
 }
 // Paginate on the server: never send thousands of company profiles in one response.
 export async function getMarketPage(db,{market="all",query="",page=1,pageSize=30}={}){
