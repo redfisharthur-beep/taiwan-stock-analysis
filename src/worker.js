@@ -21,7 +21,7 @@ async function analyze(stock,env){
  const latest=clean.prices.at(-1);
  const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&p.high>=Math.max(p.open,p.close,p.low)&&p.low<=Math.min(p.open,p.close,p.high)).slice(-120);
  const links={goodinfo:"https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID="+stock,twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
- const result={stock,name:official?.name||"",market:official?.market||"尚未辨認",asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification:check,score:scored,candles,sourceWarnings:[...warnings,...officialResult.errors],links,goodinfo:{mode:"manual_only",note:"可開啟 Goodinfo 手動輸入相同交易日的收盤價核對；未取得自動擷取授權，不宣稱已自動查證。"}};
+ const result={stock,name:official?.name||"",market:official?.market||"尚未辨認",asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification:check,score:scored,candles,sourceWarnings:[...warnings,...(official?[]:officialResult.errors)],links,goodinfo:{mode:"manual_only",note:"可開啟 Goodinfo 手動輸入相同交易日的收盤價核對；未取得自動擷取授權，不宣稱已自動查證。"}};
  if(env.DB && check.state==="一致" && official?.date===latest.date){
    try{await saveSnapshot(env.DB,result)}catch(e){result.sourceWarnings.push("榜單儲存失敗："+String(e.message||e))}
  }
