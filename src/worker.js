@@ -4,6 +4,7 @@ import {selectDailyLeaders} from "./ranking.js";
 import {getHoldingRows,concentration} from "./holding.js";
 import {loadOfficialDisclosures,researchNews} from "./news.js";
 import {valueWatchlist} from "./value.js";
+import {sinopacReady,validateOwner,privateBrokerSnapshot} from "./sinopac.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
@@ -117,10 +118,19 @@ async function computeTopFive(env,mode="score",exclude=[]){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"on_demand_no_database",version:"0.10.0",time:new Date().toISOString()});
+  rankingMode:"on_demand_no_database",sinopacConfigured:sinopacReady(env),
+  sinopacPublicDisplay:false,version:"0.11.0",time:new Date().toISOString()});
+ if(url.pathname==="/api/shioaji/test"){
+  // Owner-only. NEVER expose personal broker market data in public stock pages or rankings.
+  if(!await validateOwner(request,env))return reply({error:"Not found"},404);
+  const stock=(url.searchParams.get("stock")||"").trim();
+  if(!/^[0-9]{4}$/.test(stock))return reply({error:"需輸入四位數股票代號"},400);
+  const data=await privateBrokerSnapshot(stock,env);
+  return reply(data,data.status==="ok"?200:503,0);
+ }
  if(url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/top5?model=0.10");
+  const key=new Request(url.origin+"/api/top5?model=0.11");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeTopFive(env),response=reply(body,200,1800);
@@ -133,7 +143,7 @@ export default {async fetch(request,env,ctx){
   const exclusion=(url.searchParams.get("exclude")||"").split(",").filter(v=>
    v.length===4&&[...v].every(ch=>ch>="0"&&ch<="9")).slice(0,5);
   const exclude=[...new Set(exclusion)].sort();
-  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.10"),
+  const key=new Request(url.origin+"/api/value5?exclude="+exclude.join(",")+"&model=0.11"),
    cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
@@ -146,7 +156,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.9"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.11"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=await analyze(stock,env);
