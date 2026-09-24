@@ -1,7 +1,17 @@
-# 台股研究室 v0.17.0
+# 台股研究室 v0.18.0
 
 GitHub `main` 原檔維護：`public/index.html`、`public/app.js`、`public/style.css`、`src/worker.js`。
 介面文字統一使用 Noto Sans TC（思源黑體系列），涵蓋表單、按鈕、資訊卡及 K 線圖上的字體；不同功能以莫蘭迪色系區分。首頁只有「每日觀察」名單，原有股票搜尋已擴充成代碼或中文名稱搜尋（`/api/search?q=...`），按鈕文字為「分析」。觀察名單現改為**上市股票、上櫃股票、ETF 三個群組**（各可列五檔），取消原有 500 元價格上限；「被低估」標籤只對股票、在來源核實、估值與財報標準全數成立時顯示，絕非保證真實內在價值或買入建議。
+
+## v0.18 全市場逐檔研究與清單
+
+- 首頁新增「全市場分析」：依上市、上櫃、公司股票或 ETF 篩選，支援股票代號／名稱查詢，每頁 30 檔；從全市場名冊點選任一有行情的股票，仍可執行既有即時個股分析。
+- `/api/universe?market=all&page=1&q=` 提供逐頁股票代碼、名稱、價格、研究進度、實際資料涵蓋率及可驗證完整分數。已綁定且初始化 D1 時查詢持久化名冊及個股研究；未綁定 D1 時只列出官方上市／上櫃與可辨認 ETF 名冊，**未產生或儲存每檔深入分析**。
+- `/api/market-status` 增加 `profiles`、`unprocessed`、`fullCoverage`、`failed`、`noQuote`、`attempted`。完整評分是「實際涵蓋 100/100 且同日官方核實」，不是把名冊檔數誤稱已分析檔數。
+- 已有 D1 的 Cron 會依清單逐檔取得 FinMind 資料並入庫；排程先處理未嘗試股票，單檔失敗不再優先反覆擋住其他股票，失敗待 6 小時冷卻、先前完成檔待隔日再更新。仍是每 5 分鐘最多一檔，真正速度受 FinMind 授權配額與 Worker 上游限制影響。
+- 停牌、缺收盤價、未公告報表、缺法人／集保資料等標的仍列入名冊但不偽造 100% 分數。ETF 使用價量研究，不加入公司財報的 100 分評比。
+- **範圍界線**：本版實際列入證交所上市、櫃買中心上櫃之公司股票與可辨認 ETF；興櫃普通股、創櫃、未上市未上櫃股票尚未納入同一套歷史價量與法人評分，不可聲稱已完成字面意義的「全台灣全部股票」。興櫃的公開名冊與行情為另外的櫃買資料來源，需要分開對應和驗證。
+- **正式啟用條件**：目前專案 `wrangler.jsonc` 不包含真實 `MARKET_DB` D1 綁定；須先在 Cloudflare 建立 D1、填入其實際 ID、套用既有 `migrations/0001_market.sql` 並部署。本次修改 GitHub 不等於雲端資料已存在或 Cron 已運作。設定方式見以下「選用：持久化全市場歷史資料」章節。
 
 ## v0.17 計分與呈現
 
@@ -71,7 +81,7 @@ npx wrangler d1 migrations apply taiwan-stock-market --remote
 npx wrangler deploy
 ```
 
-在 Cloudflare Worker Secrets 確認 `FINMIND_TOKEN` 仍有效；永豐 `SJ_API_KEY`／`SJ_SEC_KEY` 只放在既有 Render 服務，不放前端或 GitHub。瀏覽 `/api/health` 應顯示 `version:"0.17.0"` 和 `marketDBConfigured:true`；瀏覽 `/api/market-status` 查目前已儲存檔數及更新時間。D1 若尚未初始化則市場同步入庫功能不會啟動，公開網站仍使用現有官方資料＋FinMind 即時分析，也會盡可能顯示官方同業估值 PR。
+在 Cloudflare Worker Secrets 確認 `FINMIND_TOKEN` 仍有效；永豐 `SJ_API_KEY`／`SJ_SEC_KEY` 只放在既有 Render 服務，不放前端或 GitHub。瀏覽 `/api/health` 應顯示 `version:"0.18.0"` 和 `marketDBConfigured:true`；瀏覽 `/api/market-status` 查目前已儲存檔數及更新時間。D1 若尚未初始化則市場同步入庫功能不會啟動，公開網站仍使用現有官方資料＋FinMind 即時分析，也會盡可能顯示官方同業估值 PR。
 
 已配置的 Cron（UTC）：
 
