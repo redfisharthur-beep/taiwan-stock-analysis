@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS market_bars (
  open REAL,high REAL,low REAL,close REAL NOT NULL,volume REAL,source TEXT NOT NULL,
  PRIMARY KEY(stock,date)
 );
+CREATE TABLE IF NOT EXISTS holder_weeks (
+ stock TEXT NOT NULL REFERENCES companies(stock),source_date TEXT NOT NULL,
+ share_pct REAL NOT NULL,updated_at TEXT NOT NULL,
+ PRIMARY KEY(stock,source_date)
+);
+CREATE INDEX IF NOT EXISTS holder_weeks_date_idx ON holder_weeks(source_date);
 CREATE TABLE IF NOT EXISTS holder_snapshots (
  stock TEXT PRIMARY KEY REFERENCES companies(stock),source_date TEXT NOT NULL,
  share_pct REAL,trend_json TEXT NOT NULL,updated_at TEXT NOT NULL
