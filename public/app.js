@@ -388,6 +388,70 @@ async function refreshDaily(){
   // Incomplete official feeds remain in API diagnostics; do not repeat long boilerplate above cards.
  }catch(error){status.textContent="每日觀察暫時無法更新："+error.message;status.hidden=false;}
 }
+// Full-market directory is paginated; identity is not a completed research score.
+let universePage=1,universeTotalPages=0,universeRequest=0;
+async function loadUniverse(){
+ const request=++universeRequest,market=$("universe-market").value;
+ const query=$("universe-query").value.trim();
+ const status=$("universe-status"),list=$("universe-list");
+ status.textContent="正在讀取全市場名冊…";
+ $("universe-prev").disabled=true;$("universe-next").disabled=true;
+ try{
+  const params=new URLSearchParams({market,q:query,page:String(universePage)});
+  const response=await fetch("/api/universe?"+params);
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||"資料暫不可用");
+  if(request!==universeRequest)return;
+  universeTotalPages=data.pages||0;
+  list.replaceChildren();
+  for(const stock of data.rows||[]){
+   const item=el("article","","universe-entry"),identity=el("div");
+   identity.append(el("div",stock.stock+"　"+(stock.name||"—"),"stock-id"),
+    el("div",stock.market+" · "+(stock.kind==="etf"?"ETF":"公司股票")+
+     " · "+(stock.quoteDate||"暫無報價日期"),"stock-info"));
+   const price=el("div",typeof stock.price==="number"?
+    numberText(stock.price)+(stock.kind==="etf"?"":" 元"):"價格待查","stock-score");
+   const score=el("div","","stock-score");
+   const completed=stock.status==="complete"&&typeof stock.score==="number";
+   score.append(el("div",completed?"綜合 "+numberText(stock.score)+" 分":
+    stock.kind==="etf"?"ETF 價量分析":"綜合分數待資料齊全"));
+   score.append(el("small",stock.kind==="etf"?
+    "技術資料 "+(stock.technicalCoverage??0)+" / 30":
+    stock.coverage===null?"尚未建立研究資料":"涵蓋 "+numberText(stock.coverage)+"%"));
+   const labels={complete:"分析完成",partial:"部分指標尚缺",pending:"排程待分析",
+    error:"資料取得失敗",stale:"歷史結果，待更新",analyzed:"ETF 已建立價量資料",
+    unscored:"尚無批次研究資料",no_quote:"暫無有效收盤價"};
+   const flag=el("div",labels[stock.status]||"待查","stock-status");
+   const button=el("button","分析","outline");
+   button.type="button";button.addEventListener("click",()=>{
+    $("ticker").value=stock.stock;$("search").requestSubmit();
+   });
+   item.append(identity,price,score,flag,button);list.append(item);
+  }
+  if(!list.children.length)list.append(el("p","目前沒有符合條件的標的。","muted"));
+  status.textContent=(data.configured?"已入庫名冊":"官方即時名冊（未啟用批次研究資料庫）")+
+   " · 共 "+numberText(data.total)+" 檔 · 每頁 "+data.pageSize+" 檔";
+  $("universe-page").textContent=universeTotalPages?
+   "第 "+universePage+" / "+universeTotalPages+" 頁":"無結果";
+  $("universe-prev").disabled=universePage<=1;
+  $("universe-next").disabled=universePage>=universeTotalPages;
+ }catch(error){
+  if(request!==universeRequest)return;
+  list.replaceChildren();
+  status.textContent="全市場列表暫不可用："+error.message;
+  $("universe-page").textContent="—";
+ }
+}
+$("universe-form").addEventListener("submit",event=>{
+ event.preventDefault();universePage=1;loadUniverse();
+});
+$("universe-market").addEventListener("change",()=>{universePage=1;loadUniverse()});
+$("universe-prev").addEventListener("click",()=>{
+ if(universePage>1){universePage--;loadUniverse();}
+});
+$("universe-next").addEventListener("click",()=>{
+ if(universePage<universeTotalPages){universePage++;loadUniverse();}
+});
 const hero=$("hero-image");hero.addEventListener("load",()=>{
  if(hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=true;}
 });hero.addEventListener("error",()=>{hero.hidden=true;$("hero-title").hidden=false;});
@@ -395,12 +459,14 @@ if(hero.complete&&hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=
 const requested=new URLSearchParams(location.search).get("stock");
 if(requested&&/^\d{4,6}$/.test(requested)){$("ticker").value=requested;$("search").requestSubmit();}
 refreshDaily();
+loadUniverse();
 fetch("/api/market-status").then(r=>r.json()).then(data=>{
  const label=$("market-sync-label");
  label.textContent=data.configured?
-  "公司名冊 "+(data.total||0)+" 檔｜財報 "+(data.finance||0)+" 檔｜技術 "+(data.technical||0)+" 檔｜籌碼 "+(data.chips||0)+" 檔。"+
-   (data.lastResearch?"最近深入分析："+data.lastResearch:"深入資料尚在分批建立"):
-  "資料庫尚未綁定；目前顯示官方初篩與個股即時查詢。";
+  "全市場 "+(data.total||0)+" 檔｜已建立研究 "+(data.profiles||0)+" 檔｜股票完整評分 "+(data.fullCoverage||0)+" 檔｜"+
+  "待建立 "+(data.unprocessed||0)+" 檔｜取得失敗 "+(data.failed||0)+" 檔。"+
+   (data.lastResearch?"最近更新："+data.lastResearch:"等待排程建立研究資料"):
+  "批次研究資料庫尚未綁定；仍可瀏覽官方全市場名冊與查詢個股。";
 }).catch(()=>{$("market-sync-label").textContent="資料庫更新狀態暫時不可用";});
 let width=0;window.addEventListener("resize",()=>{
  const w=Math.round($("kline").getBoundingClientRect().width);
