@@ -143,37 +143,37 @@ async function performScheduled(controller,env){
   return;
  }
  const db=env.MARKET_DB,cron=controller.cron||"";
- if(cron==="0 11 * * MON-FRI"){
-  const universe=await scanOfficialUniverse();
-  if(universe.marketCount!==2||universe.markets.some(x=>!x.registryAvailable))
-   throw Error("兩市場名冊或日期不完整，保留先前已核實的資料庫行情");
-  await saveUniverse(db,universe);
-  return;
- }
  const summary=await getMarketSummary(db);
- if(summary.total===0){
-  const universe=await scanOfficialUniverse();
-  const valid=universe.marketCount===2&&universe.markets.every(x=>x.registryAvailable);
-  let saved=0;
-  let status=valid?"saved":"skipped_missing_official_registry";
-  let lastError=null;
-  if(valid){
-   try{
-    saved=await saveUniverse(db,universe);
-   }catch(error){
-    status="write_failed";
-    lastError=String(error?.message||error).slice(0,300);
-    console.error("[market-sync] universe write failed",lastError);
+ // A missing registry must not deadlock the initial inventory: verified official
+ // exchange quotes can seed a clearly flagged partial inventory for research.
+ // Keep retrying full registry discovery at the daily refresh.
+ if(cron==="0 11 * * MON-FRI"||summary.total===0){
+  let universe=null,saved=0,lastError=null;
+  let status="scan_failed";
+  try{
+   universe=await scanOfficialUniverse();
+   const hasBothMarkets=universe.marketCount===2&&
+    universe.markets.every(x=>x.date&&x.total>0);
+   if(!hasBothMarkets)status="skipped_missing_official_quotes";
+   else{
+    try{
+     saved=await saveUniverse(db,universe);
+     status=universe.markets.every(x=>x.registryAvailable)?
+      "saved":"saved_quote_fallback_registry_pending";
+    }catch(error){
+     status="write_failed";
+     lastError=String(error?.message||error).slice(0,300);
+    }
    }
-  }
+  }catch(error){lastError=String(error?.message||error).slice(0,300)}
   const attempt={at:new Date().toISOString(),status,saved,
-   marketCount:universe.marketCount,marketDate:universe.marketDate,
-   markets:universe.markets.map(x=>({market:x.market,date:x.date,total:x.total,
+   marketCount:universe?.marketCount??0,marketDate:universe?.marketDate??null,
+   markets:(universe?.markets||[]).map(x=>({market:x.market,date:x.date,total:x.total,
     registryAvailable:x.registryAvailable,registryError:x.registryError||null})),
-   warnings:universe.warnings,lastError};
+   warnings:universe?.warnings||[],lastError};
   await db.prepare("INSERT INTO sync_state(key,value,updated_at) VALUES ('universe_last_attempt',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
    .bind(JSON.stringify(attempt),attempt.at).run();
-  if(status==="saved")console.info("[market-sync] universe saved",JSON.stringify(attempt));
+  if(status.startsWith("saved"))console.info("[market-sync] universe saved",JSON.stringify(attempt));
   else console.warn("[market-sync] universe skipped",JSON.stringify(attempt));
   return;
  }
