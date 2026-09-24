@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {searchOfficialCompanies} from "../src/providers.js";
 import {peerPercentile,buildPeerComparison} from "../src/industry.js";
 import {summarizeFinancialStatements} from "../src/fundamentals.js";
-import {hasMarketDB} from "../src/market-db.js";
+import {hasMarketDB,holdingFromWeeks} from "../src/market-db.js";
 
 test("name, code and partial keyword search use only verified listed/OTC registry entries",async()=>{
  const fetchJSON=async url=>url.includes("t187ap03_L")?
@@ -51,4 +51,15 @@ test("fundamental summary never invents unavailable margins or compares mismatch
  assert.equal(r.monthlyRevenueYoY,20);
  assert.equal(summarizeFinancialStatements({}).grossMargin,null);
  assert.equal(hasMarketDB({}),false);
+});
+
+test("persisted TDCC weeks form a trend only with three consecutive valid weeks",()=>{
+ const weeks=[{date:"2026-09-04",share:35},{date:"2026-09-11",share:36},
+  {date:"2026-09-18",share:37}];
+ const result=holdingFromWeeks(weeks,"2026-09-24");
+ assert.equal(result.trend.risingWeeks,2);
+ assert.equal(result.trend.changeTwoWeeks,2);
+ assert.equal(holdingFromWeeks(weeks.slice(1),"2026-09-24").trend,null);
+ assert.equal(holdingFromWeeks([{date:"2026-08-01",share:99}],"2026-09-24"),null);
+ assert.equal(holdingFromWeeks([{date:"2026-09-18",share:null}],"2026-09-24"),null);
 });
