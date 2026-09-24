@@ -28,7 +28,7 @@ export async function saveUniverse(db,universe){
 }
 export async function getMarketSummary(db){
  const [company,profile,state]=await Promise.all([
-  db.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN quote_date=(SELECT MAX(quote_date) FROM companies) AND close<500 AND close>0 AND turnover>0 AND volume>0 THEN 1 ELSE 0 END) AS eligible FROM companies").first(),
+  db.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN quote_date=(SELECT MAX(quote_date) FROM companies) AND close>0 AND turnover>0 AND volume>0 THEN 1 ELSE 0 END) AS eligible FROM companies").first(),
   db.prepare("SELECT COUNT(*) AS profiles,SUM(CASE WHEN financial_period IS NOT NULL THEN 1 ELSE 0 END) AS finance,SUM(CASE WHEN technical_date IS NOT NULL THEN 1 ELSE 0 END) AS technical,SUM(CASE WHEN chips_date IS NOT NULL THEN 1 ELSE 0 END) AS chips,MAX(fetched_at) AS lastResearch FROM market_profiles").first(),
   db.prepare("SELECT value,updated_at FROM sync_state WHERE key='universe'").first()]);
  let original=null;try{original=state?.value?JSON.parse(state.value):null;}catch{}
@@ -60,14 +60,14 @@ export async function getSavedProfile(db,stock){
   score:parse(r.score_json),metrics:parse(r.metrics_json),
   candles:parse(r.candles_json),datasetHealth:parse(r.dataset_health_json)};
 }
-export async function getDailySaved(db,limit=5){
+export async function getDailySaved(db,limit=15){
  const date=(await db.prepare("SELECT MAX(quote_date) AS latest FROM companies").first())?.latest;
  if(!date)return {marketDate:null,stocks:[],source:"database"};
  const result=await db.prepare(`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date AS date,
  c.turnover,c.volume,c.per,c.pbr,c.dividend_yield AS dividendYield,c.valuation_date AS valuationDate,
  p.market_date AS profileDate,p.metrics_json,p.score_json,p.financial_period,p.technical_date,p.chips_date
  FROM companies c LEFT JOIN market_profiles p ON p.stock=c.stock
- WHERE c.quote_date=? AND c.close>0 AND c.close<500 AND c.turnover>0 AND c.volume>0
+ WHERE c.quote_date=? AND c.close>0 AND c.turnover>0 AND c.volume>0
  ORDER BY (CASE WHEN c.per>0 AND c.per<=12 THEN 4 WHEN c.per>0 AND c.per<=18 THEN 3 WHEN c.per>0 AND c.per<=25 THEN 2 WHEN c.per>0 THEN 1 ELSE 0 END)
  +(CASE WHEN c.pbr>0 AND c.pbr<=1.2 THEN 4 WHEN c.pbr>0 AND c.pbr<=1.8 THEN 3 WHEN c.pbr>0 AND c.pbr<=2.5 THEN 2 WHEN c.pbr>0 THEN 1 ELSE 0 END)
  +(CASE WHEN c.dividend_yield>=4 AND c.dividend_yield<=20 THEN 3 WHEN c.dividend_yield>=3 AND c.dividend_yield<=20 THEN 2 WHEN c.dividend_yield>=0 AND c.dividend_yield<=20 THEN 1 ELSE 0 END) DESC,
