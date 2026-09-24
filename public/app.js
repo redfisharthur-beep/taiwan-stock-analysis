@@ -13,33 +13,98 @@ const summaryLines=item=>{
 };
 let current=null;
 function message(node,text,bad=false){node.textContent=text;node.className="notice"+(bad?" bad":"");}
-function groupCard(name,part){
- const box=el("section","","panel score-card"),head=el("div","","card-head");
- head.append(el("h3",name),el("span",part.earned+" / "+part.max+" 分 · 涵蓋 "+part.covered+"/"+part.max,"pill"));box.append(head);
- const scored=part.items.filter(i=>i.score!==null);
- const highlighted=name==="基本面"?
-  ["單月營收年增率","EPS 與去年同季"].map(label=>scored.find(i=>i.name===label)).filter(Boolean):
-  scored.sort((a,b)=>b.score/b.max-a.score/a.max).slice(0,2);
- const highlights=highlighted.length?highlighted:scored.slice(0,2);
- const highlightsBox=el("div","","score-highlights");
- if(!highlights.length)highlightsBox.append(el("p","尚無可核對資料"));
- for(const item of highlights)for(const line of summaryLines(item))
-  highlightsBox.append(el("p",line,"score-highlight-line"));
- box.append(highlightsBox);
- if(name==="籌碼面"){
-  const missingHolding=part.items.find(item=>item.name==="400張以上持股三週趨勢"&&item.score===null);
-  if(missingHolding)box.append(el("p","400張以上持股三週趨勢："+(missingHolding.note||"尚無連續三週可核實資料"),"holding-status"));
+const numberText=(n,unit="")=>typeof n==="number"&&Number.isFinite(n)?
+ n.toLocaleString("zh-TW",{maximumFractionDigits:2})+unit:"待查";
+const metricDetails=item=>{
+ const v=item.value;
+ const rows=[];
+ const add=(label,value,note,unit="")=>{
+  if(value!==null&&value!==undefined&&value!=="")
+   rows.push({label,value:typeof value==="number"?numberText(value,unit):String(value),note});
+ };
+ switch(item.name){
+ case "單月營收年增率":
+  add("",v,"與去年同月相比");break;
+ case "EPS 與去年同季":
+  add("eps",v?.eps,"本季每股盈餘"," 元");
+  add("yoyPct",v?.yoyPct,"相較去年同季","%");
+  break;
+ case "營業現金流（初步）":
+  add("",v,"本期營業現金流（原始財報金額）");break;
+ case "獲利品質與負債":
+  add("cashConversion",v?.cashConversion,"營業現金流／稅前淨利"," 倍");
+  add("debtRatioPct",v?.debtRatioPct,"總負債／總資產","%");
+  break;
+ case "估值／本益比":
+  add("per",v?.per,"股價／每股盈餘"," 倍");
+  add("oneYearPercentile",v?.oneYearPercentile,"自身近一年本益比分位","%");
+  break;
+ case "均線趨勢":
+  add("close",v?.close,"最新收盤價");
+  add("ma20",v?.ma20,"近20個交易日平均收盤價");
+  add("ma60",v?.ma60,"近60個交易日平均收盤價");break;
+ case "RSI(14)":
+  add("",v,typeof v==="number"?(v>=70?"動能偏強，留意短線波動":v<=30?"動能偏弱，留意短線波動":"14日動能指標"):"14日動能指標");
+  break;
+ case "MACD":
+  add("macd",v?.macd,"短期與長期均線動能差");
+  add("signal",v?.signal,"MACD 訊號線");
+  break;
+ case "量價":
+  add("",v,"當日成交量／前20日平均量"," 倍");break;
+ case "波動幅度與60日最大回撤":
+  add("annualizedVolatility20Pct",v?.annualizedVolatility20Pct,"近20日波動率（年化）","%");
+  add("maxDrawdown60Pct",v?.maxDrawdown60Pct,"近60日歷史最大回撤","%");break;
+ case "法人近五日淨買賣／成交量":
+  add("法人買賣超",v?.netShares,"五個已公布交易日合計股數"," 股");
+  add("成交股數",v?.totalShares,"同期累計成交量"," 股");
+  add("買賣超占比",v?.ratioPct,"買賣超／同期成交股數","%");
+  break;
+ case "400張以上持股三週趨勢":
+  add("持股占比",v?.holderPct,"最近一週400張以上持股比率","%");
+  add("三週變化",v?.changeTwoWeeksPct,"與兩週前相比（百分點）"," 個百分點");
+  break;
+ case "融資餘額變化":
+  add("",v,"當日融資餘額增減");break;
+ case "消息事件調整":
+  add("",item.score===null?0:item.score,item.score>0?"已核實正面事件加分":
+   item.score<0?"已核實負面事件扣分":"無已核實加減分事件"," 分");
+  break;
+ default:
+  if(v!==null&&v!==undefined)add("",fmt(v),"本項觀察值");
  }
- const missing=part.items.filter(i=>i.score===null);
- // Unavailable items remain visible with source-level status in expanded details; omit a duplicated pending summary.
- const details=el("details","","score-detail"),summary=el("summary","查看計分明細");details.append(summary);
+ return rows;
+};
+function groupCard(name,part,holdingStatus=null){
+ const box=el("section","","panel score-card"),head=el("div","","card-head");
+ const isNews=name==="消息面";
+ const delta=part.items.find(i=>i.name==="消息事件調整")?.score??0;
+ head.append(el("h3",name),el("span",isNews?
+  "消息加減 "+(delta>0?"+":"")+delta+" 分":
+  part.earned+" / "+part.max+" 分 · 涵蓋 "+part.covered+"/"+part.max,"pill"));
+ box.append(head);
+ const details=el("div","","score-detail");
  for(const item of part.items){
-  const row=el("div","","score-row"),label=el("div","","row-head");
-  label.append(el("span",item.name),el("strong",item.score===null?"待補":item.score+" / "+item.max));
-  row.append(label,el("small",item.value===null?"":fmt(item.value)),el("small",item.score===null?
-   "尚未評分："+(item.note||"目前無可用資料"):(item.source||"來源未標示")+" · "+(item.date||"日期未明")+" · "+item.note));
+  const row=el("section","","score-row"),label=el("div","","row-head");
+  label.append(el("span",item.name));
+  if(!isNews)label.append(el("strong",item.score===null?"待查":item.score+" / "+item.max+" 分"));
+  row.append(label);
+  for(const entry of metricDetails(item)){
+   const metric=el("div","","score-metric");
+   metric.append(el("strong",(entry.label?entry.label+" ":"")+entry.value));
+   if(entry.note)metric.append(el("small",entry.note));
+   row.append(metric);
+  }
+  if(item.score===null){
+   const detail=item.name==="400張以上持股三週趨勢"?
+    holdingStatus?.reason||"需連續三週的有效集保持股紀錄":
+    "該項資料尚未取得";
+   row.append(el("small",detail,"metric-pending"));
+  }
   details.append(row);
- }box.append(details);return box;
+ }
+ box.append(details);
+ return box;
 }
 function sourceRow(parent,label,url){source(parent,label,url);}
 function source(parent,label,url){
@@ -107,13 +172,17 @@ function present(d){
  $("evidence-panel").hidden=isFund;
  if(!isFund){renderFinancials(d);renderComparison(d)}
   const stats=$("overview");stats.replaceChildren();
- for(const [name,value] of (isFund?[
+ const displayedStats=isFund?[
   ["產品類別","ETF"],["分析範圍","市場價量"],["收盤日期",d.finmind.date]
  ]:[
-  ["目前已評得分",d.score.observedPoints+" / "+d.score.coveredPoints+" 分"],
-  ["資料涵蓋",d.score.coveredPoints+" / 100"],
-  ["綜合分數",d.score.score===null?"尚無完整資料":d.score.score+" 分"]
- ])){
+  ["基本面",d.score.parts.fundamental.earned+" / 40"],
+  ["技術面",d.score.parts.technical.earned+" / 30"],
+  ["籌碼面",d.score.parts.chips.earned+" / 30"],
+  ["消息加減",(d.score.newsDelta>0?"+":"")+(d.score.newsDelta??0)+" 分"],
+  ["綜合分數",d.score.score===null?"資料未達100%":d.score.score+" / 100"],
+  ["資料涵蓋",d.score.coveredPoints+" / 100"]
+ ];
+ for(const [name,value] of displayedStats){
   const x=el("div","","metric");x.append(el("span",name),el("b",value));stats.append(x);
  }
  $("warnings").textContent="";$("warnings").hidden=true;
@@ -122,7 +191,7 @@ function present(d){
  if(isFund){
   parts.append(groupCard("ETF 價量技術",d.score.parts.technical));
  }else for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
-  parts.append(groupCard(label,d.score.parts[key]));
+  parts.append(groupCard(label,d.score.parts[key],d.holdingStatus));
  const news=d.newsResearch||{status:"unverified",events:[],checked:[]};
  $("news-status").textContent=news.status==="corroborated_event"?
   "官方公告＋獨立媒體核對："+(news.impact||"影響待觀察")+"（非股價預測）":
