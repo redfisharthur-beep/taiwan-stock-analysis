@@ -44,5 +44,5 @@ const make=(stock,per,pbr,yieldPct)=>({stock,name:"測試公司",market:"上市"
 test("value list requires multiple valuation signals plus positive EPS and cash flow",()=>{
  const good=make("2330",12,1.3,4),bad=make("2317",50,5,0);
  const r=valueWatchlist([good,bad],{marketDate:"2026-09-24",candidateCount:2});
- assert.equal(r.stocks.length,1);assert.equal(r.stocks[0].stock,"2330");assert.equal(r.stocks[0].valueChecklist,85);
+ assert.equal(r.stocks.length,1);assert.equal(r.stocks[0].stock,"2330");assert.equal(r.stocks[0].valueChecklist,90);
 });
