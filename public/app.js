@@ -18,6 +18,7 @@ function groupCard(name,part){
   details.append(row);
  }box.append(details);return box;
 }
+function sourceRow(parent,label,url){source(parent,label,url);}
 function source(parent,label,url){
  const row=el("div",label+" ","source-line");
  if(url){const a=el("a","查看 ↗");a.href=url;a.target="_blank";a.rel="noopener noreferrer";row.append(a);}parent.append(row);
@@ -55,6 +56,30 @@ function present(d){
  for(const [key,label] of [["fundamental","基本面"],["news","消息面"],["chips","籌碼面"],["technical","技術分析"]])
   parts.append(groupCard(label,d.score.parts[key]));
  showGoodinfo(d);
+ const news=d.newsResearch||{status:"unverified",events:[],checked:[]};
+ $("news-status").textContent=news.status==="corroborated_event"?
+  "已核對："+(news.impact||"影響待觀察")+"（非股價預測）":
+  "尚無完成跨來源確認的重大事件，消息面維持待評。";
+ const ev=$("news-evidence");ev.replaceChildren();
+ for(const event of (news.events||[]).slice(0,6)){
+  const row=el("div","","source-line"),link=el("a",event.title||"公司公告");
+  link.href=event.url;link.target="_blank";link.rel="noopener noreferrer";
+  row.append(link,el("small"," · "+(event.date||"日期不明")+" · "+(event.verification==="independent_corrob"?"已有獨立來源核對":"尚未完成獨立查證")));
+  for(const item of event.evidence||[]){
+   const a=el("a",item.publisher+"（"+item.date+"）");a.href=item.url;a.target="_blank";a.rel="noopener noreferrer";
+   row.append(el("br"),a);
+  }ev.append(row);
+ }
+ if(!ev.children.length)ev.append(el("p","最近沒有可顯示的已取得公告；不代表公司沒有消息。","muted"));
+ const checked=$("news-source-status");checked.replaceChildren();
+ for(const source of (news.checked||[])){
+  const name=source.name==="Goodinfo! 台灣股市資訊網"?"Goodinfo（本頁僅行情核對）":source.name;
+  const status=source.status==="checked"?"已讀取官方公告":
+   source.status==="provided"?"已收到授權新聞資料":
+   source.status==="unavailable"?"暫無法讀取":
+   source.status==="reference_only"?"非獨立消息證據":"尚未連結授權新聞";
+  sourceRow(checked,name+"："+status,source.url);
+ }
  const sources=$("sources");sources.replaceChildren();
  source(sources,"FinMind · "+d.finmind.date,"https://finmindtrade.com/");
  if(d.official)source(sources,d.official.source+" · "+(d.official.date||"日期未提供"),d.official.url);
@@ -99,7 +124,27 @@ async function refreshDaily(){
    button.addEventListener("click",()=>{$("ticker").value=stock.stock;$("search").requestSubmit();});
    right.append(button);card.append(rank,body,right);list.append(card);
   }
- }catch(error){stamp.textContent="暫無資料";status.textContent="今日資料暫未取得，請稍後重新整理。";}
+  const v=d.value||{stocks:[]},target=$("value-list");
+  target.replaceChildren();$("value-date").textContent=d.marketDate||"尚無資料";
+  $("value-status").textContent=v.stocks?.length?
+    "本次候選 "+(d.candidateCount||0)+" 檔 · 符合初步估值條件 "+v.eligibleCount+
+    " 檔。不是全市場估算的內在價值排名。":
+    "本次候選股中，尚無同時通過估值、獲利及現金流檢查的五檔。";
+  for(const row of (v.stocks||[])){
+   const card=el("article","","daily-item"),badge=el("div",String(row.rank),"daily-rank"),
+    body=el("div"),right=el("div","","daily-score");
+   body.append(el("div",(row.name||"股票")+" "+row.stock,"daily-name"),
+    el("div",row.date+" · "+row.market+" · 收盤 "+row.close+" 元","daily-sub"));
+   const tags=el("div","","daily-parts");
+   for(const reason of row.reason||[])tags.append(el("span",reason));
+   body.append(tags,el("p","僅符合初步低估值條件；尚未計算內在價值。","daily-reason"));
+   right.append(el("strong",row.valueChecklist+" / 100"),
+    el("small","價值篩選條件分 · 非預期報酬"));
+   const button=el("button","查看分析 →","daily-action");button.type="button";
+   button.addEventListener("click",()=>{$("ticker").value=row.stock;$("search").requestSubmit();});
+   right.append(button);card.append(badge,body,right);target.append(card);
+  }
+ }catch(error){stamp.textContent="暫無資料";status.textContent="今日資料暫未取得，請稍後重新整理。";$("value-status").textContent="價值觀察資料暫不可用。";}
 }
 const hero=$("hero-image");hero.addEventListener("load",()=>{
  if(hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=true;}
