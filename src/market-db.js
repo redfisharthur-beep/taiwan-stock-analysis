@@ -182,7 +182,7 @@ const weekDate=value=>{
 };
 /** Three truly consecutive TDCC weeks are required; a lone week never earns a trend score. */
 export function holdingFromWeeks(weeks,marketDate){
- const recent=[...weeks].filter(x=>x?.date&&x.date<=marketDate&&numeric(x.share)>=0&&x.share<=100)
+ const recent=[...weeks].filter(x=>x?.date&&x.date<=marketDate&&numeric(x.share)!==null&&x.share>=0&&x.share<=100)
   .sort((a,b)=>a.date.localeCompare(b.date));
  const latest=recent.at(-1);
  if(!latest)return null;
@@ -206,13 +206,16 @@ export function holdingFromWeeks(weeks,marketDate){
 }
 export async function syncHoldingSnapshots(db,marketDate){
  const rows=await getHoldingRows(),byStock=new Map(),ts=now();
+ const companies=await db.prepare("SELECT stock FROM companies").all();
+ const known=new Set((companies.results||[]).map(x=>x.stock));
  const cutoff=new Date(Date.parse(marketDate+"T00:00:00Z")-35*86400000).toISOString().slice(0,10);
  for(const row of rows){
   const stock=String(row["證券代號"]??row.stock_id??"").trim();
   const date=weekDate(row["資料日期"]??row.date);
   const level=Number(row["持股分級"]??row.HoldingSharesLevel);
-  const pct=Number(String(row["占集保庫存數比例%"]??row.percent??"").replaceAll(",",""));
-  if(!/^[0-9]{4}$/.test(stock)||!date||date<cutoff||date>marketDate||
+  const rawPct=String(row["占集保庫存數比例%"]??row.percent??"").trim();
+  const pct=rawPct===""||rawPct==="-"?NaN:Number(rawPct.replaceAll(",",""));
+  if(!known.has(stock)||!date||date<cutoff||date>marketDate||
     !Number.isInteger(level)||level<12||level>15||!Number.isFinite(pct)||pct<0||pct>100)continue;
   if(!byStock.has(stock))byStock.set(stock,new Map());
   const weeks=byStock.get(stock);
