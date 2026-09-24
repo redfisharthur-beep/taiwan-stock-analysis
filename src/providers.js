@@ -41,15 +41,29 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
    registryUrl:"https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
    code:"Code",name:"Name",close:"ClosingPrice",turnover:"TradeValue",volume:"TradeVolume"},
   {market:"上櫃",source:"TPEx",quoteUrl:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+   alternateQuoteUrl:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes",
    ratioUrl:"https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis",
    registryUrl:"https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
    code:"SecuritiesCompanyCode",name:"CompanyName",close:"Close",
    turnover:"TransactionAmount",volume:"TradingShares"}
  ];
  const jobs=await Promise.allSettled(markets.map(async m=>{
-  const [quotes,ratios,registry]=await Promise.allSettled([fetchJSON(m.quoteUrl),fetchJSON(m.ratioUrl),fetchJSON(m.registryUrl)]);
-  if(quotes.status!=="fulfilled"||!Array.isArray(quotes.value)||!quotes.value.length)
-   throw Error("官方日行情未取得，不使用另一市場冒充全市場");
+  const quoteRequest=async()=>{
+   try{const rows=await fetchJSON(m.quoteUrl);
+    if(!Array.isArray(rows)||!rows.length)throw Error("回傳空白或格式異常");
+    return {rows,url:m.quoteUrl};
+   }catch(primaryError){
+    if(!m.alternateQuoteUrl)throw Error(m.source+" 官方行情失敗："+String(primaryError.message||primaryError));
+    try{const rows=await fetchJSON(m.alternateQuoteUrl);
+     if(!Array.isArray(rows)||!rows.length)throw Error("備援行情空白或格式異常");
+     return {rows,url:m.alternateQuoteUrl};
+    }catch(alternateError){throw Error(m.source+" 兩組官方行情均失敗；主來源："+
+     String(primaryError.message||primaryError)+"；備援："+String(alternateError.message||alternateError));}
+   }
+  };
+  const [quotes,ratios,registry]=await Promise.allSettled([quoteRequest(),fetchJSON(m.ratioUrl),fetchJSON(m.registryUrl)]);
+  if(quotes.status!=="fulfilled")throw Error(String(quotes.reason?.message||quotes.reason));
+  const quoteRows=quotes.value.rows,actualQuoteUrl=quotes.value.url;
   const ratioMap=new Map();
   if(ratios.status==="fulfilled"&&Array.isArray(ratios.value)){
    for(const item of ratios.value){
@@ -61,7 +75,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
    }
   }
   const seen=new Set(),rows=[];
-  for(const raw of quotes.value){
+  for(const raw of quoteRows){
    const stock=String(raw[m.code]??"").trim();
    if(!tickerPattern.test(stock)||seen.has(stock))continue;
    seen.add(stock);
@@ -71,7 +85,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
    const name=String(raw[m.name]??"").trim();
    const kind=isCompanyCode(stock)?"stock":securityKind(stock,{quotedName:name});
    rows.push({stock,name,kind,market:m.market,source:m.source,
-    url:m.quoteUrl,close,date:quoteDate,turnover,volume,
+    url:actualQuoteUrl,close,date:quoteDate,turnover,volume,
     screen:kind==="stock"&&ratio&&(!ratio.date||ratio.date===quoteDate)?ratio:null});
   }
   // 公司名冊補足停牌／無當日成交行情者；缺收盤價仍留在母體而不進榜單。
@@ -96,7 +110,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
     }
     const found=new Set(filtered.map(row=>row.stock));
     for(const [stock,entry] of listed)if(!found.has(stock))
-     filtered.push({stock,name:entry.name,kind:"stock",industry:entry.industry,market:m.market,source:m.source,url:m.quoteUrl,
+     filtered.push({stock,name:entry.name,kind:"stock",industry:entry.industry,market:m.market,source:m.source,url:actualQuoteUrl,
       close:null,date:null,turnover:null,volume:null,screen:null});
     rows.length=0;rows.push(...filtered);
    }
@@ -112,7 +126,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
    registryError:registry.status==="rejected"?String(registry.reason?.message||registry.reason).slice(0,240):
     registryAvailable?null:"公司名冊回應空白或格式無法辨識",
    valuationAvailable:ratios.status==="fulfilled"&&Array.isArray(ratios.value),
-   source:m.source,quoteUrl:m.quoteUrl,ratioUrl:m.ratioUrl};
+   source:m.source,quoteUrl:actualQuoteUrl,ratioUrl:m.ratioUrl};
  }));
  const successful=jobs.filter(j=>j.status==="fulfilled").map(j=>j.value);
  const marketDate=successful.map(m=>m.date).filter(Boolean).sort().at(-1)||null;
@@ -131,7 +145,7 @@ export async function scanOfficialUniverse({priceCeiling=Infinity,fetchJSON=json
   if(!m.registryAvailable)warnings.push(m.source+" 公司名冊暫不可用；只以當日行情作已知母體，不宣稱完整公司覆蓋");}
  if(successful.some(m=>m.date!==marketDate))warnings.push("兩市場日期不同，不跨日合併排行");
  return {marketDate,marketCount:successful.length,expectedMarketCount:2,
-  markets:successful.map(m=>({market:m.market,date:m.date,total:m.rows.length,registryAvailable:m.registryAvailable,
+  markets:successful.map(m=>({market:m.market,date:m.date,total:m.rows.length,quoteUrl:m.quoteUrl,registryAvailable:m.registryAvailable,
    registryError:m.registryError,valuationAvailable:m.valuationAvailable})),warnings,
   universeCount:all.length,sameDateCount:sameDate.length,
   pricedCount:priced.length,affordableCount:affordable.length,
