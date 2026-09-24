@@ -65,8 +65,10 @@ export async function getHoldingRows(fetcher=fetch){
  * license. This is a third-party mirror, not a direct official TDCC historic API.
  * Validate date, stock, four distinct tiers and three consecutive reporting weeks.
  */
-export async function archivedHoldingForStock(stock,marketDate,fetcher=fetch){
- if(!/^[0-9]{4}$/.test(stock)||!/^\d{4}-\d{2}-\d{2}$/.test(marketDate||""))return null;
+export async function archivedHoldingForStock(stock,marketDate,fetcher=fetch,{onStatus}={}){
+ const report=(code,reason)=>{onStatus?.({code,reason});return null};
+ if(!/^[0-9]{4}$/.test(stock)||!/^\d{4}-\d{2}-\d{2}$/.test(marketDate||""))
+  return report("invalid_input","證券代碼或交易日期格式不符");
  const base="https://api.github.com/repos/wirelessr/tdcc-opendata-archive/contents/snapshots/";
  const archive="https://raw.githubusercontent.com/wirelessr/tdcc-opendata-archive/main/snapshots/";
  const year=marketDate.slice(0,4);
@@ -76,37 +78,46 @@ export async function archivedHoldingForStock(stock,marketDate,fetcher=fetch){
  const catalog=timer(6500);
  try{
   const response=await fetcher(base+year,{headers:{Accept:"application/vnd.github+json"},signal:catalog.signal});
-  if(!response.ok)return null;
+  if(!response.ok)return report("archive_index_http","三週備份目錄讀取失敗（HTTP "+response.status+"）");
   index=await response.json();
- }catch{return null}finally{catalog.stop()}
- if(!Array.isArray(index))return null;
+ }catch(error){return report("archive_index_unavailable","三週備份目錄連線失敗："+String(error.message||error))}
+ finally{catalog.stop()}
+ if(!Array.isArray(index))return report("archive_index_format","歷史備份目錄格式錯誤");
  const dates=index.map(x=>String(x.name||"").replace(/\.csv$/,"")).filter(x=>
   /^\d{4}-\d{2}-\d{2}$/.test(x)&&x<=marketDate).sort().slice(-3);
- if(dates.length!==3)return null;
+ if(dates.length!==3)return report("insufficient_weeks","至交易日為止公開備份不足三個週期");
  const weekGaps=dates.slice(1).map((d,i)=>(Date.parse(d)-Date.parse(dates[i]))/86400000);
- if(weekGaps.some(days=>days<5||days>10))return null;
+ if(weekGaps.some(days=>days<5||days>10))return report("nonconsecutive_weeks","備份週期不連續："+dates.join("、"));
  const selected=await Promise.all(dates.map(async date=>{
   const req=timer(6500);
   try{
    const url=archive+year+"/"+date+".csv",response=await fetcher(url,{signal:req.signal});
-   if(!response.ok||Number(response.headers?.get?.("content-length")||0)>4000000)return [];
+   if(!response.ok)return {date,rows:[],reason:"HTTP "+response.status};
+   if(Number(response.headers?.get?.("content-length")||0)>4000000)return {date,rows:[],reason:"來源檔案超過容量上限"};
    const bytes=await response.arrayBuffer();
-   if(bytes.byteLength>4000000)return [];
+   if(bytes.byteLength>4000000)return {date,rows:[],reason:"來源檔案超過容量上限"};
    const csv=new TextDecoder("utf-8").decode(bytes).replace(/^\uFEFF/,"");
    const lines=csv.split(/\r?\n/);
    const matching=lines.slice(1).filter(line=>line.split(",",2)[1]?.trim()===stock);
-   if(!matching.length)return [];
-   return parseCSV([lines[0],...matching].join("\n"));
-  }catch{return []}finally{req.stop()}
+   if(!matching.length)return {date,rows:[],reason:"此檔股票無持股紀錄"};
+   return {date,rows:parseCSV([lines[0],...matching].join("\n")),reason:null};
+  }catch(error){return {date,rows:[],reason:"來源或 CSV 解析失敗："+String(error.message||error)}}
+  finally{req.stop()}
  }));
- const rows=selected.flat();
- const holding=concentration(rows,stock,marketDate);
- if(!holding?.trend||holding.trend.weeks.length!==3)return null;
- // If a source returns old/inconsistent dates, do not accept a manufactured trend.
- if(dates.some((d,i)=>holding.trend.weeks[i].date!==d))return null;
- return {...holding,source:"TDCC 開放資料三週公開備份（非官方即時 API）",
+ const failed=selected.filter(x=>x.reason);
+ if(failed.length)return report("archive_week_missing",failed.map(x=>x.date+"："+x.reason).join("；"));
+ const holding=concentration(selected.flatMap(x=>x.rows),stock,marketDate);
+ if(!holding?.trend||holding.trend.weeks.length!==3)
+  return report("holding_tiers_incomplete","三週資料已下載，但400張以上四個持股級距或週期不完整："+dates.join("、"));
+ if(dates.some((d,i)=>holding.trend.weeks[i].date!==d))
+  return report("holding_date_mismatch","集保資料實際日期與備份檔名不一致");
+ const newestAge=(Date.parse(marketDate)-Date.parse(holding.date))/86400000;
+ if(newestAge>14)return report("holding_stale","最近持股週資料已逾14天："+holding.date);
+ const result={...holding,source:"TDCC 開放資料三週公開備份（非官方即時 API）",
   sourceUrl:"https://github.com/wirelessr/tdcc-opendata-archive",
-  note:"以公眾備份的三期實際 TDCC 開放資料計算，資料由第三方鏡像保存；非即時持股與未來股價預測"};
+  note:"三週集保公開資料已核對："+dates.join("、")+"；來源為第三方備份，非即時股價預測"};
+ onStatus?.({code:"verified",reason:"已核實三個連續週期："+dates.join("、")});
+ return result;
 }
 export async function holdingForStock(stock,marketDate,rows=null){
  const raw=rows??await getHoldingRows();return concentration(raw,stock,marketDate);
