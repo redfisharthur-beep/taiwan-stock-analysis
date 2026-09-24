@@ -78,7 +78,19 @@ export function corroborate(events,articles,stock){
 }
 export function scoreNews(events){
  const verified=events.filter(e=>e.kind&&e.verification==="independent_corrob"&&types[e.kind]);
- if(!verified.length)return {status:"unverified",items:[],events,sourceCount:0};
+ if(!verified.length){
+  // A real, dated official MOPS filing verifies that the event was announced,
+  // even when no licensed independent article is available. This is only
+  // a partial source-verification observation, not sentiment or future return.
+  const official=[...events].filter(e=>e.kind&&types[e.kind]&&e.date&&
+   (e.verification==="official_only"||e.verification==="independent_corrob"))
+   .sort((a,b)=>b.date.localeCompare(a.date))[0];
+  if(official)return {status:"official_event_only",events,sourceCount:1,
+   items:[{name:"重大公告與事件",max:5,score:2,value:official.title,
+    date:official.date,source:official.source,
+    note:"已核對官方公告的事件種類；獨立新聞尚未核實，2 分僅代表官方事件資料有據，不評估股價方向"}]};
+  return {status:"unverified",items:[],events,sourceCount:0};
+ }
  const current=[...verified].sort((a,b)=>b.date.localeCompare(a.date))[0];
  const info=types[current.kind];
  return {status:"corroborated_event",event:current,impact:info.impact,
@@ -157,6 +169,7 @@ export async function researchNews(stock,marketDate,market,env,prefetched=null,s
   warnings:[official.error,feedError].filter(Boolean),
   note:result.status==="unverified"?
    "沒有完成同事件跨來源核對；未找到新聞不代表沒有風險。":
+   result.status==="official_event_only"?"已有真實官方事件，媒體與產業交叉查證尚未完成。":
    result.status==="independent_media_only"?"兩個獨立媒體同事件，但公司公告仍待確認；低權重暫評。":
    "僅反映已核實的事件類別，不預測股價"};
 }
