@@ -61,22 +61,24 @@ export async function getMarketSummary(db){
 // Only complete, same-session, source-verified research may appear in homepage results.
 // Company scores and ETF technical scores are intentionally two separate scales.
 export async function getVerifiedTopFive(db){
- const sql=`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date,
+ const base=`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date,
   c.per,c.pbr,c.dividend_yield,p.score_json,p.metrics_json
   FROM companies c JOIN market_profiles p ON p.stock=c.stock
   WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)
    AND c.close>0 AND c.quote_date IS NOT NULL AND p.market_date=c.quote_date
    AND c.quote_date=(SELECT MAX(c2.quote_date) FROM companies c2
      WHERE c2.market=c.market AND c2.last_scan_at=c.last_scan_at)
-   AND json_extract(p.metrics_json,'$.verified')=1
-   AND ((c.industry='ETF' AND json_extract(p.score_json,'$.parts.technical.covered')=30)
-    OR (COALESCE(c.industry,'')!='ETF'
-     AND json_extract(p.score_json,'$.coveragePercent')=100
-     AND json_extract(p.score_json,'$.score') IS NOT NULL))
-  ORDER BY c.stock`;
- const result=await db.prepare(sql).all();
- const stocks=[],etfs=[];
- for(const r of result.results||[]){
+   AND json_extract(p.metrics_json,'$.verified')=1`;
+ const stockSql=base+` AND COALESCE(c.industry,'')!='ETF'
+   AND json_extract(p.score_json,'$.coveragePercent')=100
+   AND json_extract(p.score_json,'$.score') IS NOT NULL
+   ORDER BY CAST(json_extract(p.score_json,'$.score') AS REAL) DESC,c.stock ASC LIMIT 5`;
+ const etfSql=base+` AND c.industry='ETF'
+   AND json_extract(p.score_json,'$.parts.technical.covered')=30
+   ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5`;
+ const [stockRows,etfRows]=await Promise.all([db.prepare(stockSql).all(),db.prepare(etfSql).all()]);
+  const stocks=[],etfs=[];
+ for(const r of [...(stockRows.results||[]),...(etfRows.results||[])]){
   let score;try{score=JSON.parse(r.score_json)}catch{continue}
   if(r.industry==="ETF"){
    const t=score?.parts?.technical;
@@ -112,7 +114,7 @@ export async function getVerifiedTopFive(db){
  etfs.sort((a,b)=>b.technicalScore-a.technicalScore||a.stock.localeCompare(b.stock));
  return {stocks:stocks.slice(0,5).map((x,i)=>({...x,rank:i+1})),
   etfs:etfs.slice(0,5).map((x,i)=>({...x,rank:i+1})),
-  eligibleStocks:stocks.length,eligibleETFs:etfs.length};
+  selectedStocks:stocks.length,selectedETFs:etfs.length};
 }
 // Paginate on the server: never send thousands of company profiles in one response.
 export async function getMarketPage(db,{market="all",query="",page=1,pageSize=30}={}){
