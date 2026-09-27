@@ -7,7 +7,7 @@ import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
 import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
-import {assessCandidateRisk,assessIndustryOutlook,calculateValueScore} from "./risk.js";
+import {assessCandidateRisk,assessIndustryOutlook,calculateValueScore,calculateFinalResearchScore} from "./risk.js";
 import {buildAIResearchAssessment} from "./ai-assessment.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
@@ -181,89 +181,161 @@ function qualityProxy(rows){
   let score=0,known=0;
   if(Number.isFinite(per)&&per>0){known++;score+=per<=18?4:per<=25?3:per<=35?1:0}
   if(Number.isFinite(pbr)&&pbr>0){known++;score+=pbr<=1.8?4:pbr<=2.5?2:0}
-  if(Number.isFinite(dy)&&dy>=0){known++;score+=dy>=3?3:dy>0?1:0}
-  if((r.turnover||0)>=100000000)score+=2;
-  else if((r.turnover||0)>=10000000)score+=1;
-  // Positive P/E is a coarse profitability proxy only; true quality is checked later.
+  if(Number.isFinite(dy)&&dy>=0){known++;score+=dy>=3?1:0}
+  if((r.screening?.ratioCoverage||0)===3)score+=2;
   return {...r,qualityProxy:{score,known,positiveEarnings:Number.isFinite(per)&&per>0}};
  }).sort((a,b)=>b.qualityProxy.score-a.qualityProxy.score||
    b.screening.ratioCoverage-a.screening.ratioCoverage||
-   (b.turnover||0)-(a.turnover||0));
+   (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
+   a.stock.localeCompare(b.stock));
 }
 
-// Homepage deep pass intentionally uses only three FinMind datasets per candidate.
-// Ten candidates × 3 datasets + up to 10 broker checks stays within a free Worker request budget.
-async function analyzeRankingCandidate(candidate,env){
- if(!env.FINMIND_TOKEN)throw Error("FINMIND_TOKEN 尚未設定");
- const datasets=[
-  ["TaiwanStockPrice",410],
-  ["TaiwanStockFinancialStatements",520],
-  ["TaiwanStockInstitutionalInvestorsBuySell",35]
- ];
- const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,candidate.stock,name,days)));
- if(data[0].status!=="fulfilled")return null;
- const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
- const clean=normalize(rows(0),[],rows(1),rows(2),[],[],[],[],[]);
- if(candidate.screen&&(candidate.screen.per!==null||candidate.screen.pbr!==null||candidate.screen.dividendYield!==null)){
-  clean.valuation=[{date:candidate.screen.date||candidate.date,per:candidate.screen.per??null,
-   pbr:candidate.screen.pbr??null,dividendYield:candidate.screen.dividendYield??null}];
- }
- if(!clean.prices.length)return null;
+function epsSnapshot(financials=[]){
+ const rows=financials.filter(x=>String(x.type||"").toLowerCase()==="eps"&&Number.isFinite(Number(x.value)))
+  .map(x=>({date:String(x.date||""),value:Number(x.value)}))
+  .filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date))
+  .sort((a,b)=>a.date.localeCompare(b.date));
+ const latest=rows.at(-1)||null;
+ const prior=latest?rows.find(x=>x.date===String(Number(latest.date.slice(0,4))-1)+latest.date.slice(4)):null;
+ return {latest,prior};
+}
+function recommendationConfidence({candidate,prices=[],financials=[],institutional=[],verification,score}={}){
+ const checks=[];
+ const add=(key,ok,points)=>checks.push({key,ok:!!ok,points:ok?points:0,max:points});
+ const per=candidate?.screen?.per,pbr=candidate?.screen?.pbr;
+ const eps=epsSnapshot(financials);
+ const instDates=new Set(institutional.map(x=>x.date).filter(Boolean));
+ add("officialPER",Number.isFinite(per)&&per>0,10);
+ add("officialPBR",Number.isFinite(pbr)&&pbr>0,10);
+ add("priceHistory",prices.length>=61,20);
+ add("currentEPS",Number.isFinite(eps.latest?.value)&&eps.latest.value>0,10);
+ add("comparableEPS",Number.isFinite(eps.prior?.value),10);
+ add("institutional5d",instDates.size>=5,15);
+ add("financialStatement",financials.length>=10,10);
+ add("accountingQuality",!!score?.accountingRisk&&financials.length>=10,5);
+ add("sameDayVerification",verification?.state==="一致",10);
+ const scorePct=checks.reduce((sum,x)=>sum+x.points,0);
+ return {score:scorePct,checks,eps,minimumRequired:{
+  per:Number.isFinite(per)&&per>0,pbr:Number.isFinite(pbr)&&pbr>0,
+  priceHistory:prices.length>=61,positiveEPS:Number.isFinite(eps.latest?.value)&&eps.latest.value>0,
+  institutional5d:instDates.size>=5,accountingQuality:!!score?.accountingRisk&&financials.length>=10,
+  sameDayVerification:verification?.state==="一致"
+ }};
+}
+function minimumRecommendationGate(row){
+ const min=row.recommendationConfidence?.minimumRequired||{};
+ const outlook=row.risk?.industryOutlook||{};
+ const threshold=outlook.recognitionSensitive?75:60;
+ return !row.risk?.excluded&&
+  Object.values(min).every(Boolean)&&
+  (row.recommendationConfidence?.score||0)>=threshold;
+}
+function valuationForCandidate(candidate){
+ return candidate.screen&&(candidate.screen.per!==null||candidate.screen.pbr!==null||candidate.screen.dividendYield!==null)?
+  [{date:candidate.screen.date||candidate.date,per:candidate.screen.per??null,
+    pbr:candidate.screen.pbr??null,dividendYield:candidate.screen.dividendYield??null}]:[];
+}
+function verifyCandidate(candidate,prices){
  const official={market:candidate.market,source:candidate.source,name:candidate.name,kind:"stock",
   close:candidate.close,date:candidate.date,url:candidate.url};
- let verification=reconcile(official,clean.prices);
+ let verification=reconcile(official,prices);
  if(verification.state!=="一致"){
-  const latest=clean.prices.at(-1);
+  const latest=prices.at(-1);
   const lag=latest?.date&&official.date?
    Math.round((Date.parse(official.date+"T00:00:00Z")-Date.parse(latest.date+"T00:00:00Z"))/86400000):null;
-  if(!(Number.isFinite(lag)&&lag>=0&&lag<=3))return null;
-  verification={state:"近期資料",note:"FinMind 最新交易日較官方資料略晚更新，僅用於候選評分並標示資料日期。",
-   date:latest.date,officialDate:official.date,finmindClose:latest.close,officialClose:official.close};
+  if(Number.isFinite(lag)&&lag>=0&&lag<=3)
+   verification={state:"近期資料",note:"FinMind 最新交易日較官方資料略晚更新。",
+    date:latest.date,officialDate:official.date,finmindClose:latest.close,officialClose:official.close};
  }
-
- let brokerVerification={state:sinopacReady(env)?"not_checked":"not_configured"};
- if(sinopacReady(env)&&official.date){
-  try{
-   const broker=await Promise.race([
-    privateBrokerHistory(candidate.stock,official.date,env),
-    new Promise(resolve=>setTimeout(()=>resolve({status:"timeout"}),8000))
-   ]);
-   brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
-  }catch{
-   brokerVerification={state:"unavailable",reason:"永豐交叉驗證暫不可用，不影響候選排名"};
-  }
- }
-
- const score=scoreStock({...clean,official,newsResearch:null});
- if(!Number.isFinite(score.score))return null;
- const risk=assessCandidateRisk({industry:candidate.industry,prices:clean.prices,
-  financials:clean.financials,institutional:clean.institutional,
-  screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
-   dividendYield:candidate.screen?.dividendYield??null}});
- const valueScore=calculateValueScore({compositeScore:score.score,
-  relativePoints:candidate.relativeValue?.points||0,
-  qualityPoints:candidate.qualityProxy?.score||0,risk});
- const fundamental=score.parts?.fundamental||{earned:0,covered:0,max:40};
- const technical=score.parts?.technical||{earned:0,covered:0,max:30};
- const chips=score.parts?.chips||{earned:0,covered:0,max:30};
- const items=fundamental.items||[];
- const metric=name=>items.find(x=>x.name===name)?.value??null;
- const eps=metric("EPS 與去年同季");
- return {stock:candidate.stock,name:candidate.name,market:candidate.market,kind:"stock",
-  close:candidate.close,date:candidate.date,score:score.score,scoreModel:"company_40_30_30",
-  newsDelta:0,coveredPoints:score.coveredPoints,
-  parts:{fundamental:{earned:fundamental.earned,covered:fundamental.covered,max:40},
-   technical:{earned:technical.earned,covered:technical.covered,max:30},
-   chips:{earned:chips.earned,covered:chips.covered,max:30}},
-  screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
-   dividendYield:candidate.screen?.dividendYield??null},
-  financials:{eps:eps?.eps??null,operatingCashFlow:null,debtRatioPct:null},
-  relativeValue:candidate.relativeValue||null,qualityProxy:candidate.qualityProxy||null,
-  brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason||null},
-  accountingRisk:score.accountingRisk||null,
-  risk,valueScore,detailVerified:true};
+ return {official,verification};
 }
-
+async function priceStageCandidate(candidate,env){
+ try{
+  const raw=await finmind(env,candidate.stock,"TaiwanStockPrice",410);
+  const prices=normalize(raw,[],[],[],[],[],[],[],[]).prices;
+  if(prices.length<20)return null;
+  const {official,verification}=verifyCandidate(candidate,prices);
+  const risk=assessCandidateRisk({industry:candidate.industry,prices,financials:[],institutional:[],
+   screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
+    dividendYield:candidate.screen?.dividendYield??null}});
+  return {...candidate,_prices:prices,_official:official,_verification:verification,_riskPrice:risk};
+ }catch{return null}
+}
+async function financialStageCandidate(row,env){
+ try{
+  const raw=await finmind(env,row.stock,"TaiwanStockFinancialStatements",900);
+  const financials=normalize([],[],raw,[],[],[],[],[],[]).financials;
+  const valuation=valuationForCandidate(row);
+  const risk=assessCandidateRisk({industry:row.industry,prices:row._prices,financials,institutional:[],
+   screening:{per:row.screen?.per??null,pbr:row.screen?.pbr??null,
+    dividendYield:row.screen?.dividendYield??null}});
+  const score=scoreStock({prices:row._prices,financials,valuation,official:row._official});
+  const valueScore=calculateValueScore({
+   compositeScore:score.score,relativePoints:row.relativeValue?.points||0,
+   qualityPoints:row.qualityProxy?.score||0,risk,
+   componentScores:{fundamental:score.parts?.fundamental?.earned||0,
+    technical:score.parts?.technical?.earned||0,chips:score.parts?.chips?.earned||0},
+   accountingPenalty:score.accountingRiskPenalty||0
+  });
+  return {...row,_financials:financials,risk,score,valueScore};
+ }catch{return null}
+}
+async function institutionalStageCandidate(row,env){
+ try{
+  const raw=await finmind(env,row.stock,"TaiwanStockInstitutionalInvestorsBuySell",35);
+  const institutional=normalize([],[],[],raw,[],[],[],[],[]).institutional;
+  const valuation=valuationForCandidate(row);
+  const risk=assessCandidateRisk({industry:row.industry,prices:row._prices,
+   financials:row._financials,institutional,
+   screening:{per:row.screen?.per??null,pbr:row.screen?.pbr??null,
+    dividendYield:row.screen?.dividendYield??null}});
+  const score=scoreStock({prices:row._prices,financials:row._financials,institutional,
+   valuation,official:row._official});
+  const valueScore=calculateValueScore({
+   compositeScore:score.score,relativePoints:row.relativeValue?.points||0,
+   qualityPoints:row.qualityProxy?.score||0,risk,
+   componentScores:{fundamental:score.parts?.fundamental?.earned||0,
+    technical:score.parts?.technical?.earned||0,chips:score.parts?.chips?.earned||0},
+   accountingPenalty:score.accountingRiskPenalty||0
+  });
+  const recommendationConfidence=recommendationConfidence({
+   candidate:row,prices:row._prices,financials:row._financials,
+   institutional,verification:row._verification,score
+  });
+  const finalResearchScore=calculateFinalResearchScore({
+   valueScore,confidence:recommendationConfidence.score,risk
+  });
+  const fundamental=score.parts?.fundamental||{earned:0,covered:0,max:40};
+  const technical=score.parts?.technical||{earned:0,covered:0,max:30};
+  const chips=score.parts?.chips||{earned:0,covered:0,max:30};
+  const epsItem=fundamental.items?.find(x=>x.name==="EPS 與去年同季");
+  const result={...row,score:score.score,scoreModel:"value_research_confidence_v2",
+   newsDelta:0,coveredPoints:score.coveredPoints,
+   parts:{fundamental:{earned:fundamental.earned,covered:fundamental.covered,max:40},
+    technical:{earned:technical.earned,covered:technical.covered,max:30},
+    chips:{earned:chips.earned,covered:chips.covered,max:30}},
+   screening:{per:row.screen?.per??null,pbr:row.screen?.pbr??null,
+    dividendYield:row.screen?.dividendYield??null},
+   financials:{eps:epsItem?.value?.eps??null,operatingCashFlow:null,debtRatioPct:null},
+   accountingRisk:score.accountingRisk||null,risk,valueScore,
+   recommendationConfidence,finalResearchScore,_institutional:institutional};
+  result.recommendationEligible=minimumRecommendationGate(result);
+  return result;
+ }catch{return null}
+}
+async function brokerVerifyFinal(row,env){
+ if(!row||!sinopacReady(env)||row._verification?.state!=="一致")
+  return {...row,brokerVerification:{state:sinopacReady(env)?"not_checked":"not_configured"}};
+ try{
+  const broker=await Promise.race([
+   privateBrokerHistory(row.stock,row._official.date,env),
+   new Promise(resolve=>setTimeout(()=>resolve({status:"timeout"}),6000))
+  ]);
+  return {...row,brokerVerification:reconcileBrokerHistory(broker,row._official,row._prices)};
+ }catch{
+  return {...row,brokerVerification:{state:"unavailable",reason:"永豐交叉驗證暫不可用，不影響排名"}};
+ }
+}
 
 async function mapWithConcurrency(items,limit,fn){
  const out=new Array(items.length);
@@ -272,92 +344,130 @@ async function mapWithConcurrency(items,limit,fn){
   while(true){
    const i=next++;
    if(i>=items.length)break;
-   try{out[i]=await fn(items[i],i)}catch(error){out[i]=null}
+   try{out[i]=await fn(items[i],i)}catch{out[i]=null}
   }
  }
  await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));
  return out;
 }
-
+function stripInternal(row){
+ const out={};
+ for(const [k,v] of Object.entries(row||{}))if(!k.startsWith("_"))out[k]=v;
+ return out;
+}
 function officialReferenceCandidate(candidate){
- const quality=Math.max(0,Math.min(13,candidate.qualityProxy?.score||0));
+ const quality=Math.max(0,Math.min(11,candidate.qualityProxy?.score||0));
  const relative=Math.max(0,Math.min(11,candidate.relativeValue?.points||0));
- const valueScore=Math.round((quality/13*50+relative/11*50)*100)/100;
+ const valueScore=Math.round((quality/11*45+relative/11*55)*100)/100;
  return {
   stock:candidate.stock,name:candidate.name,market:candidate.market,kind:"stock",
-  close:candidate.close,date:candidate.date,
-  score:null,valueScore,scoreModel:"official_value_prescreen",
-  coveredPoints:Math.round((candidate.screening?.ratioCoverage||0)/3*100),
+  close:candidate.close,date:candidate.date,industry:candidate.industry,
+  score:null,valueScore,finalResearchScore:valueScore*.45,
+  recommendationConfidence:{score:45,checks:[],minimumRequired:{}},
+  recommendationEligible:false,scoreModel:"official_value_prescreen",
+  coveredPoints:Math.round((candidate.screening?.ratioCoverage||0)/3*45),
   parts:{fundamental:{earned:null,covered:0,max:40},
    technical:{earned:null,covered:0,max:30},
    chips:{earned:null,covered:0,max:30}},
   screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
    dividendYield:candidate.screen?.dividendYield??null},
   financials:{eps:null,operatingCashFlow:null,debtRatioPct:null},
-  relativeValue:candidate.relativeValue||null,
-  qualityProxy:candidate.qualityProxy||null,
-  referenceCandidate:true,
-  verificationLabel:"待深度驗證"
+  relativeValue:candidate.relativeValue||null,qualityProxy:candidate.qualityProxy||null,
+  risk:{industryOutlook:assessIndustryOutlook(candidate.industry)},
+  referenceCandidate:true,verificationLabel:"待深度驗證"
  };
 }
 
 async function computeFreeMarketTopFive(env){
- const universe=await scanOfficialUniverse({priceCeiling:500});
- const commonStocks=universe.stocks.filter(x=>x.kind==="stock"&&x.close>0&&x.close<=500);
- const industryEligible=commonStocks.filter(x=>!assessIndustryOutlook(x.industry).excluded);
+ const universe=await scanOfficialUniverse();
+ const commonStocks=universe.stocks.filter(x=>x.kind==="stock"&&x.close>0);
+ // Liquidity is only an eligibility floor, never a ranking bonus.
+ const liquidStocks=commonStocks.filter(x=>Number.isFinite(x.turnover)&&x.turnover>=10000000);
+ // Financial companies are withheld only because the generic corporate model is invalid for them.
+ const modelEligible=liquidStocks.filter(x=>!assessIndustryOutlook(x.industry).modelUnsupported);
 
- // 1) Entire TWSE/TPEx official market -> industry gate -> 100 valuation candidates.
- const cheap100=rankUniverseCandidates(industryEligible,"daily",100);
+ // 1) Full official market -> 100 valuation candidates.
+ const cheap100=rankUniverseCandidates(modelEligible,"daily",100);
 
- // 2) 100 -> 30: free official quality proxy (positive earnings/valuation completeness/liquidity).
- const quality30=qualityProxy(cheap100).slice(0,30);
+ // 2) Official completeness/profitability proxy -> 40.
+ const quality40=qualityProxy(cheap100).slice(0,40);
 
- // 3) 30 -> 15: compare PE/PB/yield against same-industry medians from official data.
- const relative15=relativeUndervaluation(quality30).slice(0,15);
+ // 3) Same-industry relative valuation -> 30.
+ const relative30=relativeUndervaluation(quality40).slice(0,30);
 
- // 4) 15 -> 10: strongest combined official valuation + relative-value candidates.
- const deep10=relative15.sort((a,b)=>
+ // 4) Expand deep candidate pool to 20; price history checks abnormal trading before financial calls.
+ const deep20=relative30.sort((a,b)=>
    (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
    (b.qualityProxy?.score||0)-(a.qualityProxy?.score||0)||
    (b.screening?.sortingPoints||0)-(a.screening?.sortingPoints||0)
-  ).slice(0,10);
+  ).slice(0,20);
 
- // 5) FinMind + best-effort Shioaji verification upgrades candidates.
- // The homepage itself must never depend on those optional services to show 5 research ideas.
- const analyzed=env.FINMIND_TOKEN?
-  (await mapWithConcurrency(deep10,2,x=>analyzeRankingCandidate(x,env))).filter(Boolean):[];
- const eligible=analyzed.filter(x=>!x.risk?.excluded)
-  .sort((a,b)=>b.valueScore-a.valueScore||
-   (b.score||0)-(a.score||0)||
-   b.coveredPoints-a.coveredPoints||
+ if(!env.FINMIND_TOKEN){
+  const stocks=deep20.slice(0,5).map(officialReferenceCandidate).map((x,i)=>({...x,rank:i+1}));
+  return {ready:stocks.length>0,marketDate:universe.marketDate,asOf:new Date().toISOString(),
+   stocks,reason:stocks.length<5?"官方市場可用候選不足 5 檔。":"",
+   funnel:{official:commonStocks.length,liquid:liquidStocks.length,cheap:cheap100.length,
+    quality:quality40.length,relativeValue:relative30.length,deepCandidates:deep20.length,shown:stocks.length},
+   warnings:universe.warnings||[],unavailable:["FinMind 未設定，僅顯示官方估值候選；不視為完整推薦。"]};
+ }
+
+ const price20=(await mapWithConcurrency(deep20,4,x=>priceStageCandidate(x,env))).filter(Boolean);
+ const priceRanked=price20.filter(x=>x._riskPrice?.abnormalTrading?.score<60)
+  .sort((a,b)=>
    (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
-   a.stock.localeCompare(b.stock));
+   (b.qualityProxy?.score||0)-(a.qualityProxy?.score||0)||
+   (a._riskPrice?.abnormalTrading?.score||0)-(b._riskPrice?.abnormalTrading?.score||0));
 
+ // 5) Only the best 10 consume a financial-statement request.
+ const financial10=(await mapWithConcurrency(priceRanked.slice(0,10),3,x=>financialStageCandidate(x,env)))
+  .filter(Boolean)
+  .sort((a,b)=>b.valueScore-a.valueScore||
+   (a.risk?.valueTrap?.score||0)-(b.risk?.valueTrap?.score||0));
+
+ // 6) The best 7 consume institutional-flow requests; this keeps the free Worker under its request budget.
+ const institutional7=(await mapWithConcurrency(financial10.slice(0,7),2,x=>institutionalStageCandidate(x,env)))
+  .filter(Boolean);
+ const eligible=institutional7.filter(x=>x.recommendationEligible)
+  .sort((a,b)=>b.finalResearchScore-a.finalResearchScore||
+   b.recommendationConfidence.score-a.recommendationConfidence.score||
+   b.valueScore-a.valueScore);
+
+ // Always keep 5 research references, but candidates missing the minimum gate are clearly marked as backups.
  const used=new Set(eligible.map(x=>x.stock));
- const fallback=deep10.filter(x=>!used.has(x.stock)).map(officialReferenceCandidate)
-  .sort((a,b)=>b.valueScore-a.valueScore||
-   (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
-   a.stock.localeCompare(b.stock));
- const stocks=[...eligible,...fallback].slice(0,5).map((x,i)=>({...x,rank:i+1}));
+ const partial=institutional7.filter(x=>!used.has(x.stock))
+  .sort((a,b)=>b.finalResearchScore-a.finalResearchScore||
+   b.recommendationConfidence.score-a.recommendationConfidence.score);
+ for(const x of partial)used.add(x.stock);
+ const remaining=financial10.filter(x=>!used.has(x.stock)).map(x=>{
+  const fallback=officialReferenceCandidate(x);
+  return {...fallback,valueScore:x.valueScore||fallback.valueScore,
+   finalResearchScore:(x.valueScore||fallback.valueScore)*.5,
+   risk:x.risk||fallback.risk,referenceCandidate:true,verificationLabel:"資料門檻未完成"};
+ });
+ const preBroker=[...eligible,...partial,...remaining].slice(0,5);
+ const brokerChecked=await mapWithConcurrency(preBroker,2,x=>brokerVerifyFinal(x,env));
+ const stocks=brokerChecked.map(stripInternal).map((x,i)=>({...x,rank:i+1}));
 
  const unavailable=[
-  "首頁深度階段為了符合免費 Worker 請求上限，只批次取得 FinMind 歷史價、EPS 財報與法人買賣超；月營收、現金流、負債、融資資料改在點入個股後完整查詢。",
-  "永豐 Shioaji 會對 10 檔候選嘗試同日行情／技術交叉驗證；若 Render 冷啟動、券商限流或查詢冷卻中，該項標示未完成，不會捏造或加分。",
-  "30 檔『品質篩選』階段在免費批次模式只能用正 EPS 的本益比、PB、殖利率與流動性作代理；真正 ROE、現金流與負債品質需到個股深度頁確認。",
-  "最終 5 檔是『全市場官方初篩後的高潛力低估候選』，不是將約 2,300 檔全部逐檔跑完所有財報與券商歷史資料後的絕對排名。"
+  "推薦採最低資料門檻：官方 PE／PB、至少 61 筆歷史價、正 EPS、至少 5 個法人資料日、財報可檢查會計品質，以及官方／FinMind 同日行情核對。",
+  "一般企業的最終研究分數＝價值分數 × 推薦可信度 − 景氣循環／異常交易／Value Trap 風險；技術面在價值分數中的權重降為 15%。",
+  "金融業暫不進一般企業推薦排名，原因是銀行／保險需專用模型；其他產業不再因產業名稱永久刪除，只採風險加減分。",
+  "永豐 Shioaji 僅對最後 5 檔做交叉核對，不直接加分；完整月營收、現金流、負債與融資仍在點入個股後補齊。"
  ];
  return {ready:stocks.length>0,marketDate:universe.marketDate,asOf:new Date().toISOString(),
-  stocks,analyzedCount:analyzed.length,
-  funnel:{official:commonStocks.length,industryEligible:industryEligible.length,
-   industryExcluded:commonStocks.length-industryEligible.length,cheap:cheap100.length,quality:quality30.length,
-   relativeValue:relative15.length,deepCandidates:deep10.length,deepAnalyzed:analyzed.length,
-   riskEligible:eligible.length,referenceFallback:fallback.length,shown:stocks.length},
+  stocks,analyzedCount:institutional7.length,
+  funnel:{official:commonStocks.length,liquid:liquidStocks.length,
+   modelEligible:modelEligible.length,cheap:cheap100.length,quality:quality40.length,
+   relativeValue:relative30.length,deepCandidates:deep20.length,priceChecked:price20.length,
+   financialChecked:financial10.length,institutionalChecked:institutional7.length,
+   recommendationEligible:eligible.length,shown:stocks.length},
   universe:{total:universe.universeCount,eligible:commonStocks.length,
-   screened:cheap100.length,deepAnalyzed:analyzed.length,scannedAll:true},
+   screened:cheap100.length,deepAnalyzed:institutional7.length,scannedAll:true},
   warnings:universe.warnings||[],unavailable,
-  diagnostics:{deepCandidates:deep10.map(x=>x.stock),deepAnalyzed:analyzed.map(x=>x.stock),
-   rejectedByRisk:analyzed.filter(x=>x.risk?.excluded).map(x=>x.stock)},
-  reason:stocks.length<5?"官方市場可用候選不足 5 檔。":""};
+  diagnostics:{deepCandidates:deep20.map(x=>x.stock),
+   recommendationEligible:eligible.map(x=>x.stock),
+   partialCandidates:partial.map(x=>x.stock)},
+  reason:stocks.length<5?"目前符合流動性與資料條件的研究候選不足 5 檔。":""};
 }
 
 // D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
@@ -376,10 +486,10 @@ async function computeDailyObservations(env){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"2300_to_100_to_30_to_15_to_10_to_5_free_funnel",sinopacConfigured:sinopacReady(env),
+  rankingMode:"full_market_100_40_30_20_10_7_5_confidence_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.36.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.40.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -421,7 +531,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.36.0");
+  const key=new Request(url.origin+"/api/observations?model=0.40.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
