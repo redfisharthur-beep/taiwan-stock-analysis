@@ -175,10 +175,10 @@ export function rankUniverseCandidates(rows,mode="daily",limit=5){
   const valuationPoints=r.kind==="etf"?0:(per===null?0:per<=12?4:per<=18?3:per<=25?2:1)+
    (pbr===null?0:pbr<=1.2?4:pbr<=1.8?3:pbr<=2.5?2:1)+
    (yieldPct===null?0:yieldPct>=4?3:yieldPct>=3?2:1);
-  const liquidPoints=r.turnover>=100000000?3:r.turnover>=10000000?2:1;
   return {...r,screening:{per,pbr,dividendYield:yieldPct,checks,passed,known,
    passedAll:r.kind==="stock"&&known===3&&passed===3,ratioCoverage,
-   sortingPoints:valuationPoints+(mode==="daily"?liquidPoints:0),
+   // Liquidity is now a minimum eligibility gate upstream, not a ranking bonus.
+   sortingPoints:valuationPoints,
    liquidityLabel:r.turnover>=100000000?"成交金額較高":r.turnover>=10000000?"成交金額中等":"成交金額較低"}};
  });
  return scored.sort((a,b)=>b.screening.sortingPoints-a.screening.sortingPoints||
