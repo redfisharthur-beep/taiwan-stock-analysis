@@ -171,6 +171,7 @@ function present(d){
   ["技術面",d.score.parts.technical.earned+" / 30"],
   ["籌碼面",d.score.parts.chips.earned+" / 30"],
   ["消息加減",(d.score.newsDelta>0?"+":"")+(d.score.newsDelta??0)+" 分"],
+  ["會計風險扣分",d.score.accountingRiskPenalty?("-"+numberText(d.score.accountingRiskPenalty)+" 分"):"0 分"],
   ["綜合分數",d.score.score===null?"待核實；已計 "+numberText(d.score.observedPoints)+" 分":numberText(d.score.score)+" / 100"],
   ["計分資料涵蓋",d.score.coveragePercent+"%"]
  ];
@@ -247,6 +248,15 @@ function present(d){
    check.state==="differences"?"已核對 "+check.checked+" 項，其中 "+check.matched+" 項在容許誤差內一致；請查看差異":
    check.reason||"價格口徑不同，不能直接比較")+"。"+(check.reason||""),"muted"));
  }
+ const accounting=d.score?.accountingRisk;
+ if(accounting){
+  const eq=accounting.equityMethod||{},oci=accounting.oci||{};
+  health.append(el("p","會計品質風險：權益法 "+
+   (eq.ratioPct===null?"待查":numberText(eq.ratioPct)+"%")+
+   "（"+(eq.level||"待查")+"）／ OCI 波動 "+
+   (oci.volatilityPct===null?"待查":numberText(oci.volatilityPct)+"%")+
+   "（"+(oci.level||"待查")+"）；合計扣分 "+numberText(accounting.penalty||0)+" 分。","muted"));
+ }
  const mode=d.score?.technicalMode||"unavailable";
  health.append(el("p","技術分析資料："+(mode==="adjusted"?"使用還原價":
   mode==="raw"?"使用FinMind未還原日行情（除權息可能影響指標）":
@@ -264,6 +274,32 @@ function present(d){
  if(d.official)source(sources,d.official.source+" · "+(d.official.date||"日期未提供"),d.official.url);
  source(sources,"公開資訊觀測站（事件須核實才計分）",d.links.mops);
  for(const warning of d.sourceWarnings||[])sources.append(el("p","資料更新提示："+warning,"muted"));
+
+ const ai=$("ai-assessment");ai.replaceChildren();
+ const assessment=d.aiAssessment||null;
+ if(assessment){
+  const stance=el("div","","notice");
+  stance.append(el("strong",assessment.stance||"研究評估"));
+  if(assessment.advice)stance.append(el("p",assessment.advice));
+  ai.append(stance);
+
+  const pros=el("div","","ai-eval-group");
+  pros.append(el("h4","優點"));
+  const prosList=document.createElement("ul");
+  for(const item of (assessment.strengths||[]).slice(0,5))prosList.append(el("li",item));
+  pros.append(prosList);ai.append(pros);
+
+  const cons=el("div","","ai-eval-group");
+  cons.append(el("h4","風險與缺點"));
+  const consList=document.createElement("ul");
+  for(const item of (assessment.risks||[]).slice(0,5))consList.append(el("li",item));
+  cons.append(consList);ai.append(cons);
+
+  if(assessment.note)ai.append(el("p",assessment.note,"muted"));
+ }else{
+  ai.append(el("p","目前資料不足，尚無法產生自動研究摘要。","muted"));
+ }
+ $("ai-assessment-panel").hidden=isFund;
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
 }
 const searchBox=$("ticker"),suggestions=$("suggestions");
