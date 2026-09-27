@@ -101,6 +101,17 @@ footer{text-align:center;border-top:1px solid #dfe6dc;margin-top:24px;padding:35
 .financial-item strong,.compare-item strong{display:block;font-size:23px;font-weight:700;overflow-wrap:anywhere;margin:3px 0}
 .financial-item small,.compare-item small{display:block;color:#52675d;font-size:16px;line-height:1.6}
 .compare-item .pill{display:inline-flex;margin:6px 0;font-size:16px}
+.peer-button{display:inline-flex;width:auto;margin:7px 0 4px;padding:8px 12px;border-radius:18px;
+ background:#eaf1e9;color:#4f6e5d;border:1px solid #d4e1d6;font-size:16px}
+.peer-button:hover,.peer-button:focus{background:#dde9df}
+.peer-values{margin-top:10px;border-top:1px solid #dfe7e0;padding-top:8px;max-height:360px;overflow:auto}
+.peer-row{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(85px,.7fr) 70px;gap:10px;
+ align-items:center;padding:8px 4px;border-bottom:1px solid #edf0eb;font-size:15px}
+.peer-row span,.peer-row strong{display:block;margin:0;font-size:15px}
+.peer-row strong{text-align:right;color:#304e3e}
+.peer-row span:last-child{text-align:right;color:#60776a}
+.peer-head{position:sticky;top:0;background:#f7f9f6;font-weight:700;z-index:1}
+.peer-row.current{background:#edf4ec;border-radius:8px}
 #compare-status{font-size:16px}
 #market-sync-label{font-size:16px}
 @media(max-width:700px){
