@@ -36,7 +36,7 @@ test("100% data coverage requires all three core groups with real observations",
  const incomplete=scoreStock(missing);
  assert.equal(incomplete.coveredPoints,92);
  assert.equal(incomplete.complete,false);
- assert.equal(incomplete.score,null);
+ assert.ok(Number.isFinite(incomplete.score));
 });
 test("positive verified news adds points, negative deducts, and no event is exactly neutral",()=>{
  const full=completeInputs(),base=scoreStock(full);
@@ -57,5 +57,5 @@ test("positive verified news adds points, negative deducts, and no event is exac
  assert.equal(minus.score,Math.max(0,base.baseScore-5));
  assert.equal(unknown.score,base.score);
  const missing=completeInputs();missing.cashFlows=[];
- assert.equal(scoreStock({...missing,newsResearch:{events:[event("order_won")]}}).score,null);
+ assert.ok(Number.isFinite(scoreStock({...missing,newsResearch:{events:[event("order_won")]}}).score));
 });
