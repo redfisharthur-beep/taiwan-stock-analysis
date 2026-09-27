@@ -276,9 +276,29 @@ async function mapWithConcurrency(items,limit,fn){
  return out;
 }
 
+function officialReferenceCandidate(candidate){
+ const quality=Math.max(0,Math.min(13,candidate.qualityProxy?.score||0));
+ const relative=Math.max(0,Math.min(11,candidate.relativeValue?.points||0));
+ const valueScore=Math.round((quality/13*50+relative/11*50)*100)/100;
+ return {
+  stock:candidate.stock,name:candidate.name,market:candidate.market,kind:"stock",
+  close:candidate.close,date:candidate.date,
+  score:null,valueScore,scoreModel:"official_value_prescreen",
+  coveredPoints:Math.round((candidate.screening?.ratioCoverage||0)/3*100),
+  parts:{fundamental:{earned:null,covered:0,max:40},
+   technical:{earned:null,covered:0,max:30},
+   chips:{earned:null,covered:0,max:30}},
+  screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
+   dividendYield:candidate.screen?.dividendYield??null},
+  financials:{eps:null,operatingCashFlow:null,debtRatioPct:null},
+  relativeValue:candidate.relativeValue||null,
+  qualityProxy:candidate.qualityProxy||null,
+  referenceCandidate:true,
+  verificationLabel:"待深度驗證"
+ };
+}
+
 async function computeFreeMarketTopFive(env){
- if(!env.FINMIND_TOKEN)return {ready:false,stocks:[],analyzedCount:0,
-  reason:"尚未設定 FINMIND_TOKEN，無法進行候選股深度評分。"};
  const universe=await scanOfficialUniverse({priceCeiling:500});
  const commonStocks=universe.stocks.filter(x=>x.kind==="stock"&&x.close>0&&x.close<=500);
  const industryEligible=commonStocks.filter(x=>!assessIndustryOutlook(x.industry).excluded);
@@ -299,15 +319,23 @@ async function computeFreeMarketTopFive(env){
    (b.screening?.sortingPoints||0)-(a.screening?.sortingPoints||0)
   ).slice(0,10);
 
- // 5) FinMind + best-effort Shioaji verification -> final 5.
- const analyzed=(await mapWithConcurrency(deep10,2,x=>analyzeRankingCandidate(x,env))).filter(Boolean);
- const eligible=analyzed.filter(x=>!x.risk?.excluded);
- const stocks=eligible.sort((a,b)=>b.valueScore-a.valueScore||
-   b.score-a.score||
+ // 5) FinMind + best-effort Shioaji verification upgrades candidates.
+ // The homepage itself must never depend on those optional services to show 5 research ideas.
+ const analyzed=env.FINMIND_TOKEN?
+  (await mapWithConcurrency(deep10,2,x=>analyzeRankingCandidate(x,env))).filter(Boolean):[];
+ const eligible=analyzed.filter(x=>!x.risk?.excluded)
+  .sort((a,b)=>b.valueScore-a.valueScore||
+   (b.score||0)-(a.score||0)||
    b.coveredPoints-a.coveredPoints||
    (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
-   a.stock.localeCompare(b.stock))
-  .slice(0,5).map((x,i)=>({...x,rank:i+1}));
+   a.stock.localeCompare(b.stock));
+
+ const used=new Set(eligible.map(x=>x.stock));
+ const fallback=deep10.filter(x=>!used.has(x.stock)).map(officialReferenceCandidate)
+  .sort((a,b)=>b.valueScore-a.valueScore||
+   (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
+   a.stock.localeCompare(b.stock));
+ const stocks=[...eligible,...fallback].slice(0,5).map((x,i)=>({...x,rank:i+1}));
 
  const unavailable=[
   "首頁深度階段為了符合免費 Worker 請求上限，只批次取得 FinMind 歷史價、EPS 財報與法人買賣超；月營收、現金流、負債、融資資料改在點入個股後完整查詢。",
@@ -320,15 +348,13 @@ async function computeFreeMarketTopFive(env){
   funnel:{official:commonStocks.length,industryEligible:industryEligible.length,
    industryExcluded:commonStocks.length-industryEligible.length,cheap:cheap100.length,quality:quality30.length,
    relativeValue:relative15.length,deepCandidates:deep10.length,deepAnalyzed:analyzed.length,
-   riskEligible:eligible.length,shown:stocks.length},
+   riskEligible:eligible.length,referenceFallback:fallback.length,shown:stocks.length},
   universe:{total:universe.universeCount,eligible:commonStocks.length,
    screened:cheap100.length,deepAnalyzed:analyzed.length,scannedAll:true},
   warnings:universe.warnings||[],unavailable,
   diagnostics:{deepCandidates:deep10.map(x=>x.stock),deepAnalyzed:analyzed.map(x=>x.stock),
    rejectedByRisk:analyzed.filter(x=>x.risk?.excluded).map(x=>x.stock)},
-  reason:stocks.length?
-   (stocks.length<5?"目前先顯示 "+stocks.length+" 檔已完成深度驗證的候選；其餘候選資料來源暫未完成。":""):
-   "官方全市場已完成初篩，但 FinMind 候選深度資料目前皆未成功完成；請稍後重試。"};
+  reason:stocks.length<5?"官方市場可用候選不足 5 檔。":""};
 }
 
 // D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
@@ -350,7 +376,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"2300_to_100_to_30_to_15_to_10_to_5_free_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.34.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.35.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -392,7 +418,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.34.0");
+  const key=new Request(url.origin+"/api/observations?model=0.35.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
