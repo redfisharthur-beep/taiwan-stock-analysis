@@ -41,9 +41,8 @@ test("homepage ranks only full-score verified stocks, never an incomplete prescr
   assert.match(sql,/p.market_date=c.quote_date/);
   assert.match(sql,/verified/);
  }
- assert.match(queries[0],/coveragePercent/);
- assert.match(queries[0],/fundamental.covered/);
- assert.match(queries[0],/chips.covered/);
+ assert.match(queries[0],/observedPoints/);
+ assert.match(queries[0],/coveredPoints/);
  assert.match(queries[1],/technical.covered/);
 });
 test("financial summary selects the latest comparable statement period and exact matching equity",()=>{
