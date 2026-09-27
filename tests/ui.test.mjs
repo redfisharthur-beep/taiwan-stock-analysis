@@ -69,3 +69,11 @@ test("stock research shows observed points separately from coverage and splits E
  assert.match(js,/近期重點新聞/);
  assert.match(js,/source\.status==="other_market"\|\|source\.status==="not_connected"/);
 });
+
+test("industry PR is an expandable button with peer values",()=>{
+ assert.match(js,/peer-button/);
+ assert.match(js,/item\.peers/);
+ assert.match(js,/aria-expanded/);
+ assert.match(css,/\.peer-values\{/);
+ assert.match(css,/\.peer-row\{/);
+});
