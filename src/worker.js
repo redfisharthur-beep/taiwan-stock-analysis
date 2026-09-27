@@ -199,7 +199,7 @@ function epsSnapshot(financials=[]){
  const prior=latest?rows.find(x=>x.date===String(Number(latest.date.slice(0,4))-1)+latest.date.slice(4)):null;
  return {latest,prior};
 }
-function recommendationConfidence({candidate,prices=[],financials=[],institutional=[],verification,score}={}){
+function buildRecommendationConfidence({candidate,prices=[],financials=[],institutional=[],verification,score}={}){
  const checks=[];
  const add=(key,ok,points)=>checks.push({key,ok:!!ok,points:ok?points:0,max:points});
  const per=candidate?.screen?.per,pbr=candidate?.screen?.pbr;
@@ -298,7 +298,7 @@ async function institutionalStageCandidate(row,env){
     technical:score.parts?.technical?.earned||0,chips:score.parts?.chips?.earned||0},
    accountingPenalty:score.accountingRiskPenalty||0
   });
-  const recommendationConfidence=recommendationConfidence({
+  const recommendationConfidence=buildRecommendationConfidence({
    candidate:row,prices:row._prices,financials:row._financials,
    institutional,verification:row._verification,score
   });
@@ -386,8 +386,16 @@ async function computeFreeMarketTopFive(env){
  // Financial companies are withheld only because the generic corporate model is invalid for them.
  const modelEligible=liquidStocks.filter(x=>!assessIndustryOutlook(x.industry).modelUnsupported);
 
- // 1) Full official market -> 100 valuation candidates.
- const cheap100=rankUniverseCandidates(modelEligible,"daily",100);
+ // 1) Full official market -> broad valuation pool -> 100 candidates after
+ // industry outlook adjustment. Industry is a penalty/bonus, never a permanent delete.
+ const broad300=rankUniverseCandidates(modelEligible,"daily",300);
+ const cheap100=broad300.map(x=>{
+  const outlook=assessIndustryOutlook(x.industry);
+  return {...x,industryOutlook:outlook,
+   initialResearchPoints:(x.screening?.sortingPoints||0)-(outlook.penalty||0)/2+(outlook.bonus||0)};
+ }).sort((a,b)=>b.initialResearchPoints-a.initialResearchPoints||
+   b.screening.ratioCoverage-a.screening.ratioCoverage||
+   a.stock.localeCompare(b.stock)).slice(0,100);
 
  // 2) Official completeness/profitability proxy -> 40.
  const quality40=qualityProxy(cheap100).slice(0,40);
@@ -526,8 +534,8 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/market-status"){
   return reply({configured:true,databaseMode:"disabled_free_plan",d1:false,
    finmindConfigured:!!env.FINMIND_TOKEN,
-   rankingMode:"official_full_market_prescreen_plus_finmind_candidate_scoring",
-   note:"免費版不使用 D1；首頁以官方全市場初篩＋少量 FinMind 候選深度分析即時計算。"},200,300);
+   rankingMode:"full_market_100_40_30_20_10_7_5_confidence_funnel",
+   note:"免費版不使用 D1；全市場先做官方估值與產業風險初篩，再分階段以 FinMind 深度驗證，最後以推薦可信度與風險調整研究分數。"},200,300);
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
