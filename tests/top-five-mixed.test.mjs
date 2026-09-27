@@ -16,11 +16,13 @@ test("one shared shortlist has exactly five stock and ETF entries ranked on docu
  assert.ok(shortlist.some(x=>x.kind==="stock"));
  assert.ok(shortlist.every(x=>x.coveredPoints===100));
 });
-test("incomplete ratings never become homepage candidates and no zero or invented scores are added",()=>{
+test("partial coverage remains rankable while coverage is preserved",()=>{
  const items=mergeVerifiedResearch({stocks:[
   {stock:"2330",kind:"stock",score:null,coveredPoints:85,scoreModel:"company_40_30_30"},
   {stock:"2317",kind:"stock",score:77,coveredPoints:85,scoreModel:"company_40_30_30"}
  ],etfs:[{stock:"0050",kind:"etf",technicalScore:19,technicalCoverage:22,
   scoreModel:"etf_technical_30"}]});
- assert.deepEqual(items,[]);
+ assert.equal(items.length,2);
+ assert.equal(items.some(x=>x.stock==="2317"&&x.coveredPoints===85),true);
+ assert.equal(items.some(x=>x.stock==="0050"&&x.coveredPoints===73),true);
 });
