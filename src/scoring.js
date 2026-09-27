@@ -226,10 +226,10 @@ export function scoreStock({
  const coveredPoints=coreKeys.reduce((sum,k)=>sum+parts[k].covered,0);
  const observedPoints=round(coreKeys.reduce((sum,k)=>sum+parts[k].earned,0));
  const complete=coveredPoints===100;
- // A verified news adjustment never fills missing fundamental/technical/chip coverage.
- // Clamp the final presentation to the standard 0–100 scale.
- const score=complete?round(Math.max(0,Math.min(100,observedPoints+newsDelta))):null;
- return {score,baseScore:complete?observedPoints:null,newsDelta,
+ // Missing indicators contribute 0 points, but they no longer suppress the whole
+ // composite score. Coverage remains visible so the user can judge data completeness.
+ const score=round(Math.max(0,Math.min(100,observedPoints+newsDelta)));
+ return {score,baseScore:observedPoints,newsDelta,
   scoreModelVersion:"chips_flow20_margin10_v1",
   observedPoints,coveredPoints,
   coveragePercent:coveredPoints,complete,parts,indicators:tech,
@@ -241,5 +241,5 @@ export function scoreStock({
       brokerCount:brokerRows.length,brokerDate:brokerRows.at(-1)?.date??null,
       alignedCount:aligned.length,reason:techNote}
   },
-  disclaimer:"基本面40、技術30、籌碼30（法人20＋融資10）；適用資料齊全才顯示總分。消息僅依已核實公告加減，不補造缺值。"};
+  disclaimer:"基本面40、技術30、籌碼30（法人20＋融資10）；缺少的個別指標以0分處理但仍顯示總分，並另外標示資料涵蓋率。消息僅依已核實公告加減，不補造缺值。"};
 }
