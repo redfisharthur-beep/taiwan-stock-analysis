@@ -34,14 +34,17 @@ async function analyzeETF(stock,env,officialResult=null){
  // For funds, only the technically observed indicators are displayed;
  // company-centric 100-point aggregate, EPS, debt and industry PR are excluded.
  const technical=scored.parts.technical;
- // Fund-only model: score exists only when all 30 technical input points and
- // the fund's latest official/FinMind quote match. Never claim company 40/30/30.
+ // Fund-only model: missing technical indicators contribute 0, while the
+ // coverage percentage remains visible. Same-day official/FinMind verification
+ // is still required before the ETF can enter the homepage ranking.
  const fundComplete=technical.covered===30&&verification.state==="一致";
- const normalizedFundScore=fundComplete&&Number.isFinite(technical.earned)?
+ const fundVerified=verification.state==="一致"&&technical.covered>0;
+ const normalizedFundScore=fundVerified&&Number.isFinite(technical.earned)?
   Math.round(technical.earned/30*10000)/100:null;
+ const fundCoverage=Math.round(technical.covered/30*100);
  const score={score:normalizedFundScore,scoreModel:"etf_technical_30_normalized",
-  observedPoints:technical.earned,coveredPoints:fundComplete?100:Math.round(technical.covered/30*100),
-  coveragePercent:fundComplete?100:Math.round(technical.covered/30*100),
+  observedPoints:technical.earned,coveredPoints:fundCoverage,
+  coveragePercent:fundCoverage,
   complete:fundComplete,newsDelta:0,parts:{technical},
   indicators:scored.indicators,technicalMode:scored.technicalMode};
  const candles=prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>
