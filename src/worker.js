@@ -7,6 +7,7 @@ import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
 import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
+import {assessCandidateRisk,calculateValueScore} from "./risk.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
@@ -61,7 +62,7 @@ async function analyzeETF(stock,env,officialResult=null){
 async function analyze(stock,env,override=null,shared=null){
  if(!env.FINMIND_TOKEN)return reply({error:"尚未在 Cloudflare 設定 FINMIND_TOKEN Secret。"},503);
  const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],
-  ["TaiwanStockFinancialStatements",520],["TaiwanStockInstitutionalInvestorsBuySell",35],
+  ["TaiwanStockFinancialStatements",900],["TaiwanStockInstitutionalInvestorsBuySell",35],
   ["TaiwanStockPER",410],["TaiwanStockCashFlowsStatement",600],["TaiwanStockMarginPurchaseShortSale",30],
   ["TaiwanStockPriceAdj",410],["TaiwanStockBalanceSheet",240]];
  const data=await Promise.allSettled(datasets.map(([name,days])=>shared?.bulk&&name==="TaiwanStockMarginPurchaseShortSale"?
@@ -219,6 +220,13 @@ async function analyzeRankingCandidate(candidate,env){
 
  const score=scoreStock({...clean,official,newsResearch:null});
  if(!Number.isFinite(score.score))return null;
+ const risk=assessCandidateRisk({industry:candidate.industry,prices:clean.prices,
+  financials:clean.financials,institutional:clean.institutional,
+  screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
+   dividendYield:candidate.screen?.dividendYield??null}});
+ const valueScore=calculateValueScore({compositeScore:score.score,
+  relativePoints:candidate.relativeValue?.points||0,
+  qualityPoints:candidate.qualityProxy?.score||0,risk});
  const fundamental=score.parts?.fundamental||{earned:0,covered:0,max:40};
  const technical=score.parts?.technical||{earned:0,covered:0,max:30};
  const chips=score.parts?.chips||{earned:0,covered:0,max:30};
@@ -236,7 +244,7 @@ async function analyzeRankingCandidate(candidate,env){
   financials:{eps:eps?.eps??null,operatingCashFlow:null,debtRatioPct:null},
   relativeValue:candidate.relativeValue||null,qualityProxy:candidate.qualityProxy||null,
   brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason||null},
-  detailVerified:true};
+  risk,valueScore,detailVerified:true};
 }
 
 async function computeFreeMarketTopFive(env){
@@ -264,7 +272,9 @@ async function computeFreeMarketTopFive(env){
  // 5) FinMind + best-effort Shioaji verification -> final 5.
  const settled=await Promise.allSettled(deep10.map(x=>analyzeRankingCandidate(x,env)));
  const analyzed=settled.filter(x=>x.status==="fulfilled"&&x.value).map(x=>x.value);
- const stocks=analyzed.sort((a,b)=>b.score-a.score||
+ const eligible=analyzed.filter(x=>!x.risk?.excluded);
+ const stocks=eligible.sort((a,b)=>b.valueScore-a.valueScore||
+   b.score-a.score||
    b.coveredPoints-a.coveredPoints||
    (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
    a.stock.localeCompare(b.stock))
@@ -279,7 +289,8 @@ async function computeFreeMarketTopFive(env){
  return {ready:stocks.length>0,marketDate:universe.marketDate,asOf:new Date().toISOString(),
   stocks,analyzedCount:analyzed.length,
   funnel:{official:commonStocks.length,cheap:cheap100.length,quality:quality30.length,
-   relativeValue:relative15.length,deepCandidates:deep10.length,deepAnalyzed:analyzed.length,shown:stocks.length},
+   relativeValue:relative15.length,deepCandidates:deep10.length,deepAnalyzed:analyzed.length,
+   riskEligible:eligible.length,shown:stocks.length},
   universe:{total:universe.universeCount,eligible:commonStocks.length,
    screened:cheap100.length,deepAnalyzed:analyzed.length,scannedAll:true},
   warnings:universe.warnings||[],unavailable,
@@ -305,7 +316,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"2300_to_100_to_30_to_15_to_10_to_5_free_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.31.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.32.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -347,7 +358,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.31.0");
+  const key=new Request(url.origin+"/api/observations?model=0.32.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
