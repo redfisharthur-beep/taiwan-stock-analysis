@@ -325,6 +325,48 @@ function present(d){
  $("ai-assessment-panel").hidden=isFund;
  history.replaceState(null,"","?stock="+encodeURIComponent(d.stock));
 }
+async function fetchJSONEndpoint(url){
+ const response=await fetch(url,{headers:{"Accept":"application/json"}});
+ const contentType=response.headers.get("content-type")||"";
+ if(!contentType.includes("application/json")){
+  await response.text();
+  throw Error(response.status>=500?"後端分析服務暫時失敗":"API 回傳格式異常");
+ }
+ const data=await response.json();
+ if(!response.ok)throw Error(data.error||data.detail||"資料取得失敗");
+ return data;
+}
+async function loadDeferredAnalysis(stock){
+ const endpoints=[
+  ["/api/analyze-financial?stock=","financial"],
+  ["/api/analyze-industry?stock=","industry"],
+  ["/api/analyze-news?stock=","news"],
+  ["/api/analyze-broker?stock=","broker"]
+ ];
+ const settled=await Promise.allSettled(endpoints.map(([base])=>
+  fetchJSONEndpoint(base+encodeURIComponent(stock))));
+ if(!current||current.stock!==stock)return;
+
+ for(let i=0;i<settled.length;i++){
+  const result=settled[i],kind=endpoints[i][1];
+  if(result.status!=="fulfilled")continue;
+  const data=result.value;
+  if(kind==="financial"){
+   current.financialInsights=data.financialInsights||current.financialInsights;
+   current.datasetHealth=[...(current.datasetHealth||[]),...(data.datasetHealth||[])];
+  }else if(kind==="industry"){
+   current.industryComparison=data.industryComparison||current.industryComparison;
+  }else if(kind==="news"){
+   current.newsResearch=data.newsResearch||current.newsResearch;
+  }else if(kind==="broker"){
+   current.brokerVerification=data.brokerVerification||current.brokerVerification;
+  }
+ }
+ // Re-render once after all deferred sections settle. A failed optional source
+ // never hides the already successful core result.
+ present(current);
+}
+
 const searchBox=$("ticker"),suggestions=$("suggestions");
 let pendingLookup=0,lookupTimer=null,lookupController=null;
 const setSearchStatus=text=>{$("status").textContent=text;$("status").hidden=!text;};
@@ -374,20 +416,10 @@ $("search").addEventListener("submit",async e=>{
  if(!validTicker(stock)){setSearchStatus("請選擇有效的上市、上櫃股票或 ETF 代號");return;}
  const btn=$("submit");btn.disabled=true;setSearchStatus("正在整理資料…");$("result").hidden=true;clearSuggestions();
  try{
-  const response=await fetch("/api/analyze?stock="+encodeURIComponent(stock),{
-   headers:{"Accept":"application/json"}
-  });
-  const contentType=response.headers.get("content-type")||"";
-  if(!contentType.includes("application/json")){
-   const text=await response.text();
-   throw Error(response.status>=500?
-    "後端分析服務暫時失敗，請稍後再試":
-    "API 回傳格式異常，請確認最新 Worker 已部署");
-  }
-  const data=await response.json();
-  if(!response.ok)throw Error(data.error||data.detail||"資料取得失敗");
+  const data=await fetchJSONEndpoint("/api/analyze?stock="+encodeURIComponent(stock));
   searchBox.value=stock;present(data);setSearchStatus("");
   $("result").scrollIntoView({behavior:"smooth",block:"start"});
+  if(data.kind!=="etf")loadDeferredAnalysis(stock);
  }catch(error){setSearchStatus("查詢未完成："+error.message);}finally{btn.disabled=false;}
 });
 const showNumber=n=>Number.isFinite(n)?n.toLocaleString("zh-TW"):"—";
