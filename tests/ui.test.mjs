@@ -77,3 +77,8 @@ test("industry PR is an expandable button with peer values",()=>{
  assert.match(css,/\.peer-values\{/);
  assert.match(css,/\.peer-row\{/);
 });
+
+test("search accepts alphanumeric ETF tickers such as 00772B",()=>{
+ assert.match(js,/\^\[0-9\]\{4\}\[0-9A-Z\]\{0,2\}\$/);
+ assert.match(js,/toUpperCase\(\)/);
+});
