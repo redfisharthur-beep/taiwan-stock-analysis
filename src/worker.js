@@ -324,7 +324,11 @@ async function computeFreeMarketTopFive(env){
   universe:{total:universe.universeCount,eligible:commonStocks.length,
    screened:cheap100.length,deepAnalyzed:analyzed.length,scannedAll:true},
   warnings:universe.warnings||[],unavailable,
-  reason:stocks.length?"": "官方全市場已完成初篩，但候選股深度資料暫不足，尚無可核實排名。"};
+  diagnostics:{deepCandidates:deep10.map(x=>x.stock),deepAnalyzed:analyzed.map(x=>x.stock),
+   rejectedByRisk:analyzed.filter(x=>x.risk?.excluded).map(x=>x.stock)},
+  reason:stocks.length?
+   (stocks.length<5?"目前先顯示 "+stocks.length+" 檔已完成深度驗證的候選；其餘候選資料來源暫未完成。":""):
+   "官方全市場已完成初篩，但 FinMind 候選深度資料目前皆未成功完成；請稍後重試。"};
 }
 
 // D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
