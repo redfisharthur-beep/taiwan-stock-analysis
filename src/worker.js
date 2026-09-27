@@ -102,14 +102,19 @@ async function analyze(stock,env,override=null,shared=null){
  let brokerTechnicalPrices=[],brokerBars=[];
  if(!override&&sinopacReady(env)&&official?.date&&verification.state==="一致"&&
     /^[0-9]{4}$/.test(stock)){
-   const broker=await privateBrokerHistory(stock,official.date,env);
-   brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
-   if(broker.status==="ok")brokerBars=broker.bars;
-   // Permission must be explicitly verified before brokerage-derived history is
-   // used for any publicly rendered indicator. No broker prices are ever serialized.
-   if(env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&
-       brokerVerification.state==="matched"&&broker.bars?.length>=61)
-     brokerTechnicalPrices=broker.bars;
+   try{
+    const broker=await Promise.race([
+     privateBrokerHistory(stock,official.date,env),
+     new Promise(resolve=>setTimeout(()=>resolve({status:"timeout"}),6000))
+    ]);
+    brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
+    if(broker.status==="ok")brokerBars=broker.bars;
+    if(env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&
+        brokerVerification.state==="matched"&&broker.bars?.length>=61)
+      brokerTechnicalPrices=broker.bars;
+   }catch(error){
+    brokerVerification={state:"unavailable",reason:"永豐交叉核對暫不可用；不影響本次個股分析"};
+   }
  }
  const score=scoreStock({...clean,official,newsResearch,brokerTechnicalPrices});
  const financialInsights=summarizeFinancialStatements(clean);
@@ -550,7 +555,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"full_market_100_40_30_20_10_7_5_confidence_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.41.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.42.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -592,7 +597,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.41.0");
+  const key=new Request(url.origin+"/api/observations?model=0.42.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
@@ -607,7 +612,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/analyze"){
   const stock=(url.searchParams.get("stock")||"").trim();
   if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.19.0"),cache=caches.default;
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.42.0"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const res=isETFCandidate(stock)?
@@ -618,9 +623,14 @@ export default {async fetch(request,env,ctx){
     // 其餘財報、技術、籌碼仍依個股真實資料分析，不能由估值表推測。
     if(payload.kind!=="etf"&&!hasMarketDB(env)){
      try{
-      const official=await scanOfficialUniverse();
+      const official=await Promise.race([
+       scanOfficialUniverse(),
+       new Promise((_,reject)=>setTimeout(()=>reject(Error("同業比較逾時")),5000))
+      ]);
       payload.industryComparison=buildOfficialIndustryComparison(stock,official);
-     }catch(error){payload.industryComparison={items:[],reason:"官方同業估值暫不可用，PR 待查"};}
+     }catch(error){
+      payload.industryComparison={items:[],reason:"官方同業估值暫不可用，PR 待查"};
+     }
     }
     if(false&&payload.kind!=="etf"&&hasMarketDB(env)){
      try{
