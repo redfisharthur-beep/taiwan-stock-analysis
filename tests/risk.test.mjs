@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {assessCandidateRisk,assessIndustryOutlook,calculateValueScore,isCyclicalIndustry} from "../src/risk.js";
+import {assessCandidateRisk,assessIndustryOutlook,calculateValueScore,calculateFinalResearchScore,isCyclicalIndustry} from "../src/risk.js";
 
 const dates=Array.from({length:90},(_,i)=>new Date(Date.UTC(2026,5,30+i)).toISOString().slice(0,10));
 const steadyPrices=dates.map((date,i)=>({date,close:100+i*.05,volume:1000000}));
@@ -41,22 +41,26 @@ test("falling EPS, institutional selling and broken MA60 raise value-trap risk",
  assert.equal(risk.excluded,true);
 });
 
-test("risk deductions reduce final value score",()=>{
- const lowRisk={cyclical:{score:0},abnormalTrading:{score:0},valueTrap:{score:0}};
- const highRisk={cyclical:{score:60},abnormalTrading:{score:60},valueTrap:{score:60}};
- const a=calculateValueScore({compositeScore:70,relativePoints:8,qualityPoints:10,risk:lowRisk});
- const b=calculateValueScore({compositeScore:70,relativePoints:8,qualityPoints:10,risk:highRisk});
+test("risk deductions apply to final research score without double-counting value score",()=>{
+ const lowRisk={cyclical:{score:0},abnormalTrading:{score:0},valueTrap:{score:0},industryOutlook:{level:"中性"}};
+ const highRisk={cyclical:{score:60},abnormalTrading:{score:60},valueTrap:{score:60},industryOutlook:{level:"中性"}};
+ const value=calculateValueScore({compositeScore:70,relativePoints:8,qualityPoints:10,risk:lowRisk});
+ const a=calculateFinalResearchScore({valueScore:value,confidence:80,risk:lowRisk});
+ const b=calculateFinalResearchScore({valueScore:value,confidence:80,risk:highRisk});
  assert.ok(a>b);
 });
 
-test("structurally weak industries are excluded from recommendations but not globally deleted",()=>{
+test("industry outlook uses penalties instead of permanent exclusion",()=>{
  const cement=assessIndustryOutlook("水泥工業");
- assert.equal(cement.excluded,true);
- assert.equal(cement.level,"排除");
+ assert.equal(cement.excluded,false);
+ assert.equal(cement.level,"高度逆風");
+ assert.ok(cement.penalty>0);
  const steel=assessIndustryOutlook("鋼鐵工業");
  assert.equal(steel.excluded,false);
  assert.equal(steel.level,"逆風");
  const semi=assessIndustryOutlook("半導體業");
  assert.equal(semi.excluded,false);
  assert.equal(semi.level,"成長");
+ const finance=assessIndustryOutlook("金融保險業");
+ assert.equal(finance.modelUnsupported,true);
 });
