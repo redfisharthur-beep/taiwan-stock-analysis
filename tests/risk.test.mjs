@@ -18,7 +18,10 @@ test("cyclical industry with peak EPS is flagged",()=>{
 });
 
 test("short-term surge and volume spike triggers abnormal-trading gate",()=>{
- const prices=dates.map((date,i)=>({date,close:i<70?100:100+(i-69)*3,volume:i<85?1000000:5000000}));
+ const surge=[100,125,130,135,140,145];
+ const prices=dates.map((date,i)=>({date,
+  close:i<dates.length-6?100:surge[i-(dates.length-6)],
+  volume:i<dates.length-5?1000000:5000000}));
  const risk=assessCandidateRisk({industry:"電子零組件業",prices,financials:[],institutional:[]});
  assert.ok(risk.abnormalTrading.score>=60);
  assert.equal(risk.excluded,true);
