@@ -146,15 +146,10 @@ async function performScheduled(controller,env){
   return;
  }
  const db=env.MARKET_DB,cron=controller.cron||"";
- const summary=await getMarketSummary(db);
- // A blocked OTC API must not leave a healthy TWSE inventory permanently empty.
- // Save only real official quotes, label any missing market explicitly, and retry
- // the incomplete market without requiring Cloudflare dashboard access.
- const lastScan=Date.parse(summary.lastUniverseAttempt?.at||"");
- const missingMarket=(summary.markets||[]).length!==2;
- const refreshPartial=missingMarket&&summary.total>0&&
-  (!Number.isFinite(lastScan)||Date.now()-lastScan>=30*60000);
- if(cron==="0 11 * * MON-FRI"||summary.total===0||refreshPartial){
+ // Do not run the expensive full-market summary on every five-minute tick.
+ // The weekday universe cron owns full official-market refreshes; regular ticks
+ // only claim and analyze the next queued security.
+ if(cron==="0 11 * * MON-FRI"){
   let universe=null,saved=0,lastError=null,status="scan_failed";
   try{
    universe=await scanOfficialUniverse();
@@ -253,7 +248,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"verified_100_coverage_full_market_scores",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.22.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.23.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -308,8 +303,10 @@ export default {async fetch(request,env,ctx){
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
-   const response=reply(body,200,1800);
-   if(body.ready)ctx.waitUntil(cache.put(key,response.clone()));
+   const response=reply(body,200,300);
+   // Cache both ready and not-ready states so repeated homepage refreshes do not
+   // rescan D1 while the research queue is still warming up.
+   ctx.waitUntil(cache.put(key,response.clone()));
    return response;
   }catch(err){return reply({ready:false,stocks:[],reason:"官方資料或分析服務暫時無法取得。",
    detail:String(err.message||err)},503)}
