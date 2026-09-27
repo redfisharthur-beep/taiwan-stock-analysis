@@ -142,9 +142,32 @@ function renderComparison(d){
  for(const item of comp.items){
   const box=el("div","","compare-item");
   box.append(el("span",item.label),el("strong",nval(item.value,item.unit)));
-  if(item.pr!==null&&Number.isFinite(item.pr))box.append(el("span","PR "+item.pr+" · 同業 "+item.sample+" 檔","pill"));
-  else box.append(el("small","PR 待查 · 有效同業 "+item.sample+" 檔"));
-  // Individual dates and methodology remain available in the API, not repeated on every card.
+  if(item.pr!==null&&Number.isFinite(item.pr)){
+   const button=el("button","PR "+item.pr+" · 同業 "+item.sample+" 檔","peer-button");
+   button.type="button";
+   button.setAttribute("aria-expanded","false");
+   const list=el("div","","peer-values");
+   list.hidden=true;
+   const head=el("div","","peer-row peer-head");
+   head.append(el("span","股票"),el("span",item.label),el("span","PR"));
+   list.append(head);
+   for(const peer of item.peers||[]){
+    const row=el("div","","peer-row"+(peer.isCurrent?" current":""));
+    row.append(
+     el("span",(peer.name||peer.stock)+" "+peer.stock),
+     el("strong",nval(peer.value,item.unit)),
+     el("span",Number.isFinite(peer.pr)?"PR "+peer.pr:"—")
+    );
+    list.append(row);
+   }
+   if(!(item.peers||[]).length)list.append(el("small","目前沒有可展開的同業明細。","muted"));
+   button.addEventListener("click",()=>{
+    list.hidden=!list.hidden;
+    button.setAttribute("aria-expanded",String(!list.hidden));
+    button.textContent=(list.hidden?"PR ":"收合 · PR ")+item.pr+" · 同業 "+item.sample+" 檔";
+   });
+   box.append(button,list);
+  }else box.append(el("small","PR 待查 · 有效同業 "+item.sample+" 檔"));
   target.append(box);
  }
 }
