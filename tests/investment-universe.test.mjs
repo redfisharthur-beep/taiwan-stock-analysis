@@ -60,3 +60,12 @@ test("fund identity cannot be inferred for ETNs or warrants",()=>{
  assert.equal(securityKind("0050",{quotedName:"元大台灣50"}),"etf");
  assert.equal(securityKind("1001",{company:true,quotedName:"公司甲"}),"stock");
 });
+
+test("homepage backfills to five research candidates when deep verification is incomplete",async()=>{
+ const response=await mockWorker("/api/observations");
+ assert.equal(response.status,200);
+ const data=await response.json();
+ assert.equal(data.ready,true);
+ assert.equal(data.stocks.length,5);
+ assert.ok(data.stocks.every(x=>x.stock));
+});
