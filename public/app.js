@@ -374,9 +374,18 @@ $("search").addEventListener("submit",async e=>{
  if(!validTicker(stock)){setSearchStatus("請選擇有效的上市、上櫃股票或 ETF 代號");return;}
  const btn=$("submit");btn.disabled=true;setSearchStatus("正在整理資料…");$("result").hidden=true;clearSuggestions();
  try{
-  const response=await fetch("/api/analyze?stock="+encodeURIComponent(stock));
+  const response=await fetch("/api/analyze?stock="+encodeURIComponent(stock),{
+   headers:{"Accept":"application/json"}
+  });
+  const contentType=response.headers.get("content-type")||"";
+  if(!contentType.includes("application/json")){
+   const text=await response.text();
+   throw Error(response.status>=500?
+    "後端分析服務暫時失敗，請稍後再試":
+    "API 回傳格式異常，請確認最新 Worker 已部署");
+  }
   const data=await response.json();
-  if(!response.ok)throw Error(data.error||"資料取得失敗");
+  if(!response.ok)throw Error(data.error||data.detail||"資料取得失敗");
   searchBox.value=stock;present(data);setSearchStatus("");
   $("result").scrollIntoView({behavior:"smooth",block:"start"});
  }catch(error){setSearchStatus("查詢未完成："+error.message);}finally{btn.disabled=false;}
