@@ -1,15 +1,15 @@
 import test from "node:test";import assert from "node:assert/strict";
 import {scoreStock,indicators,num,WEIGHTS} from "../src/scoring.js";
 import {reconcile} from "../src/providers.js";
-test("missing data cannot create fabricated full 100-point score",()=>{
- const s=scoreStock({});assert.equal(s.score,null);assert.equal(s.coveredPoints,0);assert.equal(s.parts.news.covered,0);
+test("missing data contributes zero while coverage stays explicit",()=>{
+ const s=scoreStock({});assert.equal(s.score,0);assert.equal(s.coveredPoints,0);assert.equal(s.parts.news.covered,0);
 });
 test("raw-price fallback restores technical coverage but never masquerades as adjusted prices",()=>{
  const rows=Array.from({length:90},(_,i)=>({date:new Date(Date.UTC(2026,5,26+i)).toISOString().slice(0,10),
   close:100+i*.1,volume:1000}));
  const s=scoreStock({prices:rows});
  assert.equal(s.parts.technical.covered,30);assert.equal(s.coveredPoints,30);
- assert.equal(s.technicalMode,"raw");assert.equal(s.score,null);
+ assert.equal(s.technicalMode,"raw");assert.ok(Number.isFinite(s.score));
  assert.ok(s.parts.technical.items.every(i=>i.source==="FinMind TaiwanStockPrice"));
  assert.ok(s.parts.technical.items.every(i=>i.note.includes("未還原")));
  assert.deepEqual(Object.fromEntries(Object.entries(s.parts).map(([k,v])=>[k,v.max])),WEIGHTS);
@@ -84,10 +84,10 @@ test("verified good news adds points, bad news deducts points, and no news is ne
  assert.equal(negative.parts.news.earned,-2);
  assert.equal(neutral.newsDelta,0);
  assert.equal(neutral.parts.news.items[0].score,0);
- for(const result of [positive,negative,neutral]){
-  assert.equal(result.score,null,"news must not fill missing fundamental, technical or chip data");
-  assert.equal(result.coveredPoints,0);
- }
+ assert.equal(positive.score,5);
+ assert.equal(negative.score,0);
+ assert.equal(neutral.score,0);
+ for(const result of [positive,negative,neutral])assert.equal(result.coveredPoints,0);
 });
 
 test("three-week TDCC HTTP 403 is irrelevant after dropping unavailable holder trend",()=>{
