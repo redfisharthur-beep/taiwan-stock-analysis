@@ -452,15 +452,66 @@ async function computeFreeMarketTopFive(env){
    finalResearchScore:(x.valueScore||fallback.valueScore)*.5,
    risk:x.risk||fallback.risk,referenceCandidate:true,verificationLabel:"資料門檻未完成"};
  });
- const preBroker=[...eligible,...partial,...remaining].slice(0,5);
+ // The homepage must always show 5 research candidates when the official market
+ // itself has at least five eligible securities. Deep verification changes rank/confidence,
+ // but never suppresses the whole shortlist.
+ const rankedPool=[...eligible,...partial,...remaining];
+ const seen=new Set(rankedPool.map(x=>x.stock));
+
+ // Backfill from the 20-price stage first.
+ for(const x of priceRanked){
+  if(seen.has(x.stock))continue;
+  const fallback=officialReferenceCandidate(x);
+  rankedPool.push({...fallback,
+   risk:x._riskPrice||fallback.risk,
+   finalResearchScore:fallback.valueScore*.45,
+   verificationLabel:"已完成價格風險檢查，待財報／法人深度驗證"});
+  seen.add(x.stock);
+ }
+
+ // If API depth was insufficient, backfill from official relative-value candidates.
+ for(const x of deep20){
+  if(seen.has(x.stock))continue;
+  rankedPool.push(officialReferenceCandidate(x));
+  seen.add(x.stock);
+ }
+
+ // Last-resort official-market backfill: never leave the homepage blank because
+ // FinMind/Shioaji temporarily failed. These are clearly marked as reference candidates.
+ if(rankedPool.length<5){
+  for(const x of relative30){
+   if(seen.has(x.stock))continue;
+   rankedPool.push(officialReferenceCandidate(x));
+   seen.add(x.stock);
+   if(rankedPool.length>=5)break;
+  }
+ }
+ if(rankedPool.length<5){
+  for(const x of quality40){
+   if(seen.has(x.stock))continue;
+   rankedPool.push(officialReferenceCandidate(x));
+   seen.add(x.stock);
+   if(rankedPool.length>=5)break;
+  }
+ }
+ if(rankedPool.length<5){
+  for(const x of cheap100){
+   if(seen.has(x.stock))continue;
+   rankedPool.push(officialReferenceCandidate(x));
+   seen.add(x.stock);
+   if(rankedPool.length>=5)break;
+  }
+ }
+
+ const preBroker=rankedPool.slice(0,5);
  const brokerChecked=await mapWithConcurrency(preBroker,2,x=>brokerVerifyFinal(x,env));
  const stocks=brokerChecked.map(stripInternal).map((x,i)=>({...x,rank:i+1}));
 
  const unavailable=[
-  "推薦採最低資料門檻：官方 PE／PB、至少 61 筆歷史價、正 EPS、至少 5 個法人資料日、財報可檢查會計品質，以及官方／FinMind 同日行情核對。",
-  "一般企業的最終研究分數＝價值分數 × 推薦可信度 − 景氣循環／異常交易／Value Trap 風險；技術面在價值分數中的權重降為 15%。",
-  "金融業暫不進一般企業推薦排名，原因是銀行／保險需專用模型；其他產業不再因產業名稱永久刪除，只採風險加減分。",
-  "永豐 Shioaji 僅對最後 5 檔做交叉核對，不直接加分；完整月營收、現金流、負債與融資仍在點入個股後補齊。"
+  "首頁固定顯示 5 檔研究候選；深度資料完整者以研究分數排序，資料不足者保留為『候補研究』並顯示推薦可信度，不再因單一資料源失敗而整頁空白。",
+  "正式推薦門檻仍要求官方 PE／PB、至少 61 筆歷史價、正 EPS、至少 5 個法人資料日、財報會計品質檢查，以及官方／FinMind 同日行情核對。",
+  "一般企業的最終研究分數＝價值分數 × 推薦可信度 − 景氣循環／異常交易／Value Trap 風險；技術面在價值分數中的權重為 15%。",
+  "金融業暫不進一般企業推薦排名；永豐 Shioaji 僅對最後 5 檔做交叉核對，不直接加分。"
  ];
  return {ready:stocks.length>0,marketDate:universe.marketDate,asOf:new Date().toISOString(),
   stocks,analyzedCount:institutional7.length,
@@ -474,8 +525,10 @@ async function computeFreeMarketTopFive(env){
   warnings:universe.warnings||[],unavailable,
   diagnostics:{deepCandidates:deep20.map(x=>x.stock),
    recommendationEligible:eligible.map(x=>x.stock),
-   partialCandidates:partial.map(x=>x.stock)},
-  reason:stocks.length<5?"目前符合流動性與資料條件的研究候選不足 5 檔。":""};
+   partialCandidates:partial.map(x=>x.stock),
+   shown:stocks.map(x=>({stock:x.stock,eligible:!!x.recommendationEligible,
+    referenceCandidate:!!x.referenceCandidate,confidence:x.recommendationConfidence?.score??null}))},
+  reason:stocks.length?"":"官方市場目前無法取得可用研究候選。"};
 }
 
 // D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
@@ -497,7 +550,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"full_market_100_40_30_20_10_7_5_confidence_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.40.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.41.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -539,7 +592,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.40.0");
+  const key=new Request(url.origin+"/api/observations?model=0.41.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
