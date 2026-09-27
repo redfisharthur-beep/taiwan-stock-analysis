@@ -351,6 +351,7 @@ function renderStockCard(stock){
   if(stock.risk?.valueTrap)tags.append(el("span","Value Trap "+stock.risk.valueTrap.score+" · "+stock.risk.valueTrap.level));
   if(stock.risk?.abnormalTrading)tags.append(el("span","異常交易 "+stock.risk.abnormalTrading.level));
   if(stock.risk?.cyclical)tags.append(el("span","景氣循環 "+stock.risk.cyclical.level));
+  if(stock.risk?.industryOutlook)tags.append(el("span","產業趨勢 "+stock.risk.industryOutlook.level));
   const actual=stock.financials||{};
   if(typeof actual.eps==="number")tags.append(el("span","EPS "+numberText(actual.eps)));
   if(typeof actual.operatingCashFlow==="number")
