@@ -346,6 +346,7 @@ function renderStockCard(stock){
    const part=stock.parts?.[key];
    tags.append(el("span",label+" "+numberText(part?.earned)+" / "+max));
   }
+  tags.append(el("span","資料涵蓋 "+numberText(stock.coveredPoints)+"%"));
   const actual=stock.financials||{};
   if(typeof actual.eps==="number")tags.append(el("span","EPS "+numberText(actual.eps)));
   if(typeof actual.operatingCashFlow==="number")
@@ -369,7 +370,7 @@ async function refreshDaily(){
   const response=await fetch("/api/observations");
   const d=await response.json();
   if(!response.ok)throw Error(d.reason||"研究服務暫不可用");
-  const rows=(d.stocks||[]).filter(x=>Number.isFinite(x.score)&&x.coveredPoints===100).slice(0,5);
+  const rows=(d.stocks||[]).filter(x=>Number.isFinite(x.score)&&x.coveredPoints>0).slice(0,5);
   status.textContent=d.reason||"";
   status.hidden=!status.textContent;
   for(const stock of rows)list.append(renderStockCard(stock));
