@@ -23,6 +23,13 @@ const finite=x=>typeof x==="number"&&Number.isFinite(x);
 const value=(row,metric)=>metric.nested?row.metrics?.technical?.[metric.key]:row.metrics?.[metric.key];
 const date=(row,metric)=>metric.nested?row.metrics?.technical?.date:
  metric.dateKey==="marketDate"?row.marketDate:row.metrics?.[metric.dateKey];
+const peerRows=(rows,metric,ownStock=null)=>{
+ const values=rows.map(r=>value(r,metric)).filter(finite);
+ return rows.map(r=>({
+  stock:r.stock,name:r.name||r.stock,value:value(r,metric),
+  pr:peerPercentile(value(r,metric),values),isCurrent:ownStock?String(r.stock)===String(ownStock):false
+ })).filter(r=>finite(r.value)).sort((a,b)=>a.value-b.value||String(a.stock).localeCompare(String(b.stock)));
+};
 export function peerPercentile(n,values){
  if(!finite(n)||values.length<5||!values.every(finite))return null;
  const less=values.filter(x=>x<n).length,eq=values.filter(x=>x===n).length;
@@ -37,7 +44,8 @@ export function buildPeerComparison(own,peers,{minPeers=5}={}){
   const available=finite(ownValue)&&!!ownDate&&comparable.length>=minPeers;
   return {key:metric.key,label:metric.label,unit:metric.unit,value:finite(ownValue)?ownValue:null,
    date:ownDate||null,pr:available?peerPercentile(ownValue,comparable.map(x=>value(x,metric))):null,
-   sample:comparable.length,source:metric.kind==="valuation"?"官方估值／FinMind":
+   sample:comparable.length,peers:peerRows(comparable,metric,own.stock),
+   source:metric.kind==="valuation"?"官方估值／FinMind":
     metric.kind==="market"?"FinMind／TDCC":"FinMind 公開財報",
    note:available?"PR 越高表示該指標原始數值在同業中越大；不是投資優劣排名":
     "同市場同產業、相同報告期有效樣本不足 "+minPeers+" 檔，暫不計算 PR"};
@@ -70,10 +78,14 @@ export function buildOfficialIndustryComparison(stock,universe){
  ];
  const items=metrics.map(([key,label,unit,valid])=>{
   const ownValue=own.screen?.[key];
-  const values=peers.map(x=>x.screen?.[key]).filter(v=>Number.isFinite(v)&&valid(v));
+  const validPeers=peers.filter(x=>Number.isFinite(x.screen?.[key])&&valid(x.screen[key]));
+  const values=validPeers.map(x=>x.screen[key]);
   const comparable=Number.isFinite(ownValue)&&valid(ownValue)&&values.length>=5;
+  const rows=validPeers.map(x=>({stock:x.stock,name:x.name||x.stock,value:x.screen[key],
+   pr:peerPercentile(x.screen[key],values),isCurrent:x.stock===stock}))
+   .sort((a,b)=>a.value-b.value||String(a.stock).localeCompare(String(b.stock)));
   return {key,label,unit,value:Number.isFinite(ownValue)&&valid(ownValue)?ownValue:null,
-   date,pr:comparable?peerPercentile(ownValue,values):null,sample:values.length,
+   date,pr:comparable?peerPercentile(ownValue,values):null,sample:values.length,peers:rows,
    source:own.source+"／官方估值表",
    note:comparable?"PR 越大僅表示此指標數字在同業中越大，非投資優劣":
     "相同市場、產業與日期的官方有效估值樣本不足五檔，暫不計算 PR"};
