@@ -209,13 +209,27 @@ async function analyzeRankingCandidate(candidate,env){
  if(!clean.prices.length)return null;
  const official={market:candidate.market,source:candidate.source,name:candidate.name,kind:"stock",
   close:candidate.close,date:candidate.date,url:candidate.url};
- const verification=reconcile(official,clean.prices);
- if(verification.state!=="一致")return null;
+ let verification=reconcile(official,clean.prices);
+ if(verification.state!=="一致"){
+  const latest=clean.prices.at(-1);
+  const lag=latest?.date&&official.date?
+   Math.round((Date.parse(official.date+"T00:00:00Z")-Date.parse(latest.date+"T00:00:00Z"))/86400000):null;
+  if(!(Number.isFinite(lag)&&lag>=0&&lag<=3))return null;
+  verification={state:"近期資料",note:"FinMind 最新交易日較官方資料略晚更新，僅用於候選評分並標示資料日期。",
+   date:latest.date,officialDate:official.date,finmindClose:latest.close,officialClose:official.close};
+ }
 
  let brokerVerification={state:sinopacReady(env)?"not_checked":"not_configured"};
  if(sinopacReady(env)&&official.date){
-  const broker=await privateBrokerHistory(candidate.stock,official.date,env);
-  brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
+  try{
+   const broker=await Promise.race([
+    privateBrokerHistory(candidate.stock,official.date,env),
+    new Promise(resolve=>setTimeout(()=>resolve({status:"timeout"}),8000))
+   ]);
+   brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
+  }catch{
+   brokerVerification={state:"unavailable",reason:"永豐交叉驗證暫不可用，不影響候選排名"};
+  }
  }
 
  const score=scoreStock({...clean,official,newsResearch:null});
@@ -247,6 +261,21 @@ async function analyzeRankingCandidate(candidate,env){
   risk,valueScore,detailVerified:true};
 }
 
+
+async function mapWithConcurrency(items,limit,fn){
+ const out=new Array(items.length);
+ let next=0;
+ async function worker(){
+  while(true){
+   const i=next++;
+   if(i>=items.length)break;
+   try{out[i]=await fn(items[i],i)}catch(error){out[i]=null}
+  }
+ }
+ await Promise.all(Array.from({length:Math.min(limit,items.length)},()=>worker()));
+ return out;
+}
+
 async function computeFreeMarketTopFive(env){
  if(!env.FINMIND_TOKEN)return {ready:false,stocks:[],analyzedCount:0,
   reason:"尚未設定 FINMIND_TOKEN，無法進行候選股深度評分。"};
@@ -271,8 +300,7 @@ async function computeFreeMarketTopFive(env){
   ).slice(0,10);
 
  // 5) FinMind + best-effort Shioaji verification -> final 5.
- const settled=await Promise.allSettled(deep10.map(x=>analyzeRankingCandidate(x,env)));
- const analyzed=settled.filter(x=>x.status==="fulfilled"&&x.value).map(x=>x.value);
+ const analyzed=(await mapWithConcurrency(deep10,2,x=>analyzeRankingCandidate(x,env))).filter(Boolean);
  const eligible=analyzed.filter(x=>!x.risk?.excluded);
  const stocks=eligible.sort((a,b)=>b.valueScore-a.valueScore||
    b.score-a.score||
@@ -318,7 +346,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"2300_to_100_to_30_to_15_to_10_to_5_free_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.33.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.34.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -360,7 +388,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.33.0");
+  const key=new Request(url.origin+"/api/observations?model=0.34.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
