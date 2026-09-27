@@ -140,21 +140,67 @@ async function analyze(stock,env,override=null,shared=null){
 }
 // Free-plan homepage ranking: scan the whole official market once, then deeply
 // analyze only a very small candidate set. This deliberately avoids D1 and background jobs.
+function median(values){
+ const xs=values.filter(Number.isFinite).sort((a,b)=>a-b);
+ if(!xs.length)return null;
+ const m=Math.floor(xs.length/2);
+ return xs.length%2?xs[m]:(xs[m-1]+xs[m])/2;
+}
+function relativeUndervaluation(rows){
+ const groups=new Map();
+ for(const r of rows){
+  const key=r.industry||r.market||"其他";
+  if(!groups.has(key))groups.set(key,[]);
+  groups.get(key).push(r);
+ }
+ return rows.map(r=>{
+  const peers=groups.get(r.industry||r.market||"其他")||[];
+  const per=Number.isFinite(r.screen?.per)&&r.screen.per>0?r.screen.per:null;
+  const pbr=Number.isFinite(r.screen?.pbr)&&r.screen.pbr>0?r.screen.pbr:null;
+  const dy=Number.isFinite(r.screen?.dividendYield)&&r.screen.dividendYield>=0?r.screen.dividendYield:null;
+  const medPer=median(peers.map(x=>x.screen?.per).filter(x=>Number.isFinite(x)&&x>0));
+  const medPbr=median(peers.map(x=>x.screen?.pbr).filter(x=>Number.isFinite(x)&&x>0));
+  const medDy=median(peers.map(x=>x.screen?.dividendYield).filter(x=>Number.isFinite(x)&&x>=0));
+  let points=0,known=0;
+  if(per!==null&&medPer){known++;points+=per<=medPer*.7?4:per<=medPer*.85?3:per<=medPer?2:0}
+  if(pbr!==null&&medPbr){known++;points+=pbr<=medPbr*.7?4:pbr<=medPbr*.85?3:pbr<=medPbr?2:0}
+  if(dy!==null&&medDy!==null){known++;points+=dy>=medDy*1.3?3:dy>=medDy*1.1?2:dy>=medDy?1:0}
+  return {...r,relativeValue:{points,known,peerCount:peers.length,
+   industry:r.industry||null,industryMedianPER:medPer,industryMedianPBR:medPbr,
+   industryMedianYield:medDy}};
+ }).sort((a,b)=>b.relativeValue.points-a.relativeValue.points||
+   b.screening.sortingPoints-a.screening.sortingPoints||
+   (b.turnover||0)-(a.turnover||0));
+}
+function qualityProxy(rows){
+ return rows.map(r=>{
+  const per=r.screening?.per,pbr=r.screening?.pbr,dy=r.screening?.dividendYield;
+  let score=0,known=0;
+  if(Number.isFinite(per)&&per>0){known++;score+=per<=18?4:per<=25?3:per<=35?1:0}
+  if(Number.isFinite(pbr)&&pbr>0){known++;score+=pbr<=1.8?4:pbr<=2.5?2:0}
+  if(Number.isFinite(dy)&&dy>=0){known++;score+=dy>=3?3:dy>0?1:0}
+  if((r.turnover||0)>=100000000)score+=2;
+  else if((r.turnover||0)>=10000000)score+=1;
+  // Positive P/E is a coarse profitability proxy only; true quality is checked later.
+  return {...r,qualityProxy:{score,known,positiveEarnings:Number.isFinite(per)&&per>0}};
+ }).sort((a,b)=>b.qualityProxy.score-a.qualityProxy.score||
+   b.screening.ratioCoverage-a.screening.ratioCoverage||
+   (b.turnover||0)-(a.turnover||0));
+}
+
+// Homepage deep pass intentionally uses only three FinMind datasets per candidate.
+// Ten candidates × 3 datasets + up to 10 broker checks stays within a free Worker request budget.
 async function analyzeRankingCandidate(candidate,env){
  if(!env.FINMIND_TOKEN)throw Error("FINMIND_TOKEN 尚未設定");
  const datasets=[
   ["TaiwanStockPrice",410],
-  ["TaiwanStockMonthRevenue",520],
   ["TaiwanStockFinancialStatements",520],
-  ["TaiwanStockInstitutionalInvestorsBuySell",35],
-  ["TaiwanStockCashFlowsStatement",600],
-  ["TaiwanStockBalanceSheet",240]
+  ["TaiwanStockInstitutionalInvestorsBuySell",35]
  ];
  const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,candidate.stock,name,days)));
  if(data[0].status!=="fulfilled")return null;
  const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
- const clean=normalize(rows(0),rows(1),rows(2),rows(3),[],rows(4),[],[],rows(5));
- // Reuse same-day official full-market valuation when available instead of another API call.
+ const clean=normalize(rows(0),[],rows(1),rows(2),[],[],[],[],[]);
  if(candidate.screen&&(candidate.screen.per!==null||candidate.screen.pbr!==null||candidate.screen.dividendYield!==null)){
   clean.valuation=[{date:candidate.screen.date||candidate.date,per:candidate.screen.per??null,
    pbr:candidate.screen.pbr??null,dividendYield:candidate.screen.dividendYield??null}];
@@ -164,6 +210,13 @@ async function analyzeRankingCandidate(candidate,env){
   close:candidate.close,date:candidate.date,url:candidate.url};
  const verification=reconcile(official,clean.prices);
  if(verification.state!=="一致")return null;
+
+ let brokerVerification={state:sinopacReady(env)?"not_checked":"not_configured"};
+ if(sinopacReady(env)&&official.date){
+  const broker=await privateBrokerHistory(candidate.stock,official.date,env);
+  brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
+ }
+
  const score=scoreStock({...clean,official,newsResearch:null});
  if(!Number.isFinite(score.score))return null;
  const fundamental=score.parts?.fundamental||{earned:0,covered:0,max:40};
@@ -171,8 +224,7 @@ async function analyzeRankingCandidate(candidate,env){
  const chips=score.parts?.chips||{earned:0,covered:0,max:30};
  const items=fundamental.items||[];
  const metric=name=>items.find(x=>x.name===name)?.value??null;
- const eps=metric("EPS 與去年同季"),cash=metric("營業現金流（初步）"),
-  leverage=metric("獲利品質與負債");
+ const eps=metric("EPS 與去年同季");
  return {stock:candidate.stock,name:candidate.name,market:candidate.market,kind:"stock",
   close:candidate.close,date:candidate.date,score:score.score,scoreModel:"company_40_30_30",
   newsDelta:0,coveredPoints:score.coveredPoints,
@@ -181,8 +233,9 @@ async function analyzeRankingCandidate(candidate,env){
    chips:{earned:chips.earned,covered:chips.covered,max:30}},
   screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
    dividendYield:candidate.screen?.dividendYield??null},
-  financials:{eps:eps?.eps??null,operatingCashFlow:cash,
-   debtRatioPct:leverage?.debtRatioPct??null},
+  financials:{eps:eps?.eps??null,operatingCashFlow:null,debtRatioPct:null},
+  relativeValue:candidate.relativeValue||null,qualityProxy:candidate.qualityProxy||null,
+  brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason||null},
   detailVerified:true};
 }
 
@@ -191,27 +244,46 @@ async function computeFreeMarketTopFive(env){
   reason:"尚未設定 FINMIND_TOKEN，無法進行候選股深度評分。"};
  const universe=await scanOfficialUniverse({priceCeiling:500});
  const commonStocks=universe.stocks.filter(x=>x.kind==="stock"&&x.close>0&&x.close<=500);
- // Entire official market is screened first. Only six candidates are deep-analyzed
- // to stay within free Worker subrequest limits.
- const candidates=rankUniverseCandidates(commonStocks,"daily",6);
- const settled=await Promise.allSettled(candidates.map(x=>analyzeRankingCandidate(x,env)));
+
+ // 1) Entire TWSE/TPEx official market -> 100 valuation candidates.
+ const cheap100=rankUniverseCandidates(commonStocks,"daily",100);
+
+ // 2) 100 -> 30: free official quality proxy (positive earnings/valuation completeness/liquidity).
+ const quality30=qualityProxy(cheap100).slice(0,30);
+
+ // 3) 30 -> 15: compare PE/PB/yield against same-industry medians from official data.
+ const relative15=relativeUndervaluation(quality30).slice(0,15);
+
+ // 4) 15 -> 10: strongest combined official valuation + relative-value candidates.
+ const deep10=relative15.sort((a,b)=>
+   (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
+   (b.qualityProxy?.score||0)-(a.qualityProxy?.score||0)||
+   (b.screening?.sortingPoints||0)-(a.screening?.sortingPoints||0)
+  ).slice(0,10);
+
+ // 5) FinMind + best-effort Shioaji verification -> final 5.
+ const settled=await Promise.allSettled(deep10.map(x=>analyzeRankingCandidate(x,env)));
  const analyzed=settled.filter(x=>x.status==="fulfilled"&&x.value).map(x=>x.value);
  const stocks=analyzed.sort((a,b)=>b.score-a.score||
-   b.coveredPoints-a.coveredPoints||a.stock.localeCompare(b.stock))
+   b.coveredPoints-a.coveredPoints||
+   (b.relativeValue?.points||0)-(a.relativeValue?.points||0)||
+   a.stock.localeCompare(b.stock))
   .slice(0,5).map((x,i)=>({...x,rank:i+1}));
+
  const unavailable=[
-  "沒有逐檔全市場執行融資餘額資料，因此籌碼面最多先由法人買賣超計分；缺少部分以 0 分處理並顯示涵蓋率。",
-  "首頁不批次抓新聞與永豐 Shioaji，避免免費額度與券商連線限制；點入個股時仍可做更完整核對。",
-  "這是『全市場官方初篩後的深度候選前五名』，不是把全市場約 2,300 檔全部跑完完整財報／技術／籌碼後的絕對排名。"
+  "首頁深度階段為了符合免費 Worker 請求上限，只批次取得 FinMind 歷史價、EPS 財報與法人買賣超；月營收、現金流、負債、融資資料改在點入個股後完整查詢。",
+  "永豐 Shioaji 會對 10 檔候選嘗試同日行情／技術交叉驗證；若 Render 冷啟動、券商限流或查詢冷卻中，該項標示未完成，不會捏造或加分。",
+  "30 檔『品質篩選』階段在免費批次模式只能用正 EPS 的本益比、PB、殖利率與流動性作代理；真正 ROE、現金流與負債品質需到個股深度頁確認。",
+  "最終 5 檔是『全市場官方初篩後的高潛力低估候選』，不是將約 2,300 檔全部逐檔跑完所有財報與券商歷史資料後的絕對排名。"
  ];
  return {ready:stocks.length>0,marketDate:universe.marketDate,asOf:new Date().toISOString(),
   stocks,analyzedCount:analyzed.length,
+  funnel:{official:commonStocks.length,cheap:cheap100.length,quality:quality30.length,
+   relativeValue:relative15.length,deepCandidates:deep10.length,deepAnalyzed:analyzed.length,shown:stocks.length},
   universe:{total:universe.universeCount,eligible:commonStocks.length,
-   screened:candidates.length,deepAnalyzed:analyzed.length,scannedAll:true},
+   screened:cheap100.length,deepAnalyzed:analyzed.length,scannedAll:true},
   warnings:universe.warnings||[],unavailable,
-  reason:stocks.length?
-   "已從上市、上櫃官方全市場先做行情／估值初篩，再對候選股做 FinMind 深度評分。":
-   "官方全市場已完成初篩，但候選股深度資料暫不足，尚無可核實排名。"};
+  reason:stocks.length?"": "官方全市場已完成初篩，但候選股深度資料暫不足，尚無可核實排名。"};
 }
 
 // D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
@@ -230,10 +302,10 @@ async function computeDailyObservations(env){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"official_full_market_prescreen_plus_finmind_candidate_scoring",sinopacConfigured:sinopacReady(env),
+  rankingMode:"2300_to_100_to_30_to_15_to_10_to_5_free_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.30.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.31.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -275,7 +347,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.30.0");
+  const key=new Request(url.origin+"/api/observations?model=0.31.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
