@@ -1,3 +1,4 @@
+import {assessAccountingRisk} from "./accounting-risk.js";
 // Base coverage requires 40+30+30=100. Verified news is a signed bonus/penalty, never a coverage requirement.
 export const WEIGHTS={fundamental:40,news:0,chips:30,technical:30};
 const finite=x=>typeof x==="number"&&Number.isFinite(x);
@@ -226,10 +227,12 @@ export function scoreStock({
  const coveredPoints=coreKeys.reduce((sum,k)=>sum+parts[k].covered,0);
  const observedPoints=round(coreKeys.reduce((sum,k)=>sum+parts[k].earned,0));
  const complete=coveredPoints===100;
- // Missing indicators contribute 0 points, but they no longer suppress the whole
- // composite score. Coverage remains visible so the user can judge data completeness.
- const score=round(Math.max(0,Math.min(100,observedPoints+newsDelta)));
+ const accountingRisk=assessAccountingRisk(financials);
+ // Missing indicators contribute 0 points. Accounting-quality risk is a separate
+ // deduction so low PE/PB or high EPS cannot mask heavy equity-method/OCI dependence.
+ const score=round(Math.max(0,Math.min(100,observedPoints+newsDelta-accountingRisk.penalty)));
  return {score,baseScore:observedPoints,newsDelta,
+  accountingRiskPenalty:accountingRisk.penalty,accountingRisk,
   scoreModelVersion:"chips_flow20_margin10_v1",
   observedPoints,coveredPoints,
   coveragePercent:coveredPoints,complete,parts,indicators:tech,
@@ -241,5 +244,5 @@ export function scoreStock({
       brokerCount:brokerRows.length,brokerDate:brokerRows.at(-1)?.date??null,
       alignedCount:aligned.length,reason:techNote}
   },
-  disclaimer:"基本面40、技術30、籌碼30（法人20＋融資10）；缺少的個別指標以0分處理但仍顯示總分，並另外標示資料涵蓋率。消息僅依已核實公告加減，不補造缺值。"};
+  disclaimer:"基本面40、技術30、籌碼30（法人20＋融資10）；缺少的個別指標以0分處理但仍顯示總分，並另外標示資料涵蓋率。消息僅依已核實公告加減；權益法獲利依賴與 OCI 波動另列會計品質風險扣分。"};
 }
