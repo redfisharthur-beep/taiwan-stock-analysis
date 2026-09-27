@@ -207,27 +207,37 @@ export async function getSavedProfile(db,stock){
 export async function claimNextCompany(db){
  const failureCooldown=new Date(Date.now()-6*3600000).toISOString();
  const refreshCooldown=new Date(Date.now()-20*3600000).toISOString();
- const claimed=await db.prepare(`UPDATE companies SET last_attempt=?
- WHERE stock=(
-  SELECT q.stock FROM companies q
-  WHERE q.last_scan_at=(
-    SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=q.market)
-   AND q.close>0 AND q.quote_date IS NOT NULL
-   AND (
-    q.last_attempt IS NULL
-    OR (q.last_profile_at IS NULL AND q.last_attempt<?)
-    OR (q.last_profile_at IS NOT NULL AND q.last_attempt<? AND
-      (q.last_error IS NOT NULL OR substr(q.last_profile_at,1,10)<q.quote_date))
-   )
-  ORDER BY CASE WHEN q.last_attempt IS NULL THEN 0
-    WHEN q.last_profile_at IS NULL THEN 1 ELSE 2 END,
-    COALESCE(q.last_profile_at,q.last_attempt,'') ASC,q.stock
-  LIMIT 1
- )
- RETURNING stock,name,market,industry,close,quote_date AS date,turnover,volume,
- per,pbr,dividend_yield AS dividendYield,valuation_date AS valuationDate`)
- .bind(now(),failureCooldown,refreshCooldown).first();
- return claimed||null;
+
+ // Keep this deliberately simple for Cloudflare D1 compatibility:
+ // 1) select one candidate; 2) mark it attempted; 3) return the selected row.
+ const row=await db.prepare(`SELECT q.stock,q.name,q.market,q.industry,q.close,
+  q.quote_date AS date,q.turnover,q.volume,q.per,q.pbr,
+  q.dividend_yield AS dividendYield,q.valuation_date AS valuationDate
+ FROM companies q
+ WHERE q.close>0 AND q.quote_date IS NOT NULL
+  AND q.last_scan_at=(
+   SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=q.market
+  )
+  AND (
+   q.last_attempt IS NULL
+   OR (q.last_profile_at IS NULL AND q.last_attempt<?)
+   OR (q.last_profile_at IS NOT NULL AND q.last_attempt<?
+     AND (q.last_error IS NOT NULL OR substr(q.last_profile_at,1,10)<q.quote_date))
+  )
+ ORDER BY CASE
+   WHEN q.last_attempt IS NULL THEN 0
+   WHEN q.last_profile_at IS NULL THEN 1
+   ELSE 2
+  END,
+  COALESCE(q.last_profile_at,q.last_attempt,'') ASC,
+  q.stock ASC
+ LIMIT 1`)
+ .bind(failureCooldown,refreshCooldown).first();
+
+ if(!row)return null;
+ await db.prepare("UPDATE companies SET last_attempt=? WHERE stock=?")
+  .bind(now(),row.stock).run();
+ return row;
 }
 export async function saveResearch(db,company,clean,body){
  const ts=now(),s=body.score||{},date=body.finmind?.date||null;
