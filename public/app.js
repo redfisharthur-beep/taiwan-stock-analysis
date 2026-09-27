@@ -359,8 +359,9 @@ searchBox.addEventListener("input",()=>{
  },200);
 });
 $("search").addEventListener("submit",async e=>{
- e.preventDefault();let stock=searchBox.value.trim();
- if(!/^[0-9]{4,6}$/.test(stock)){
+ e.preventDefault();let stock=searchBox.value.trim().toUpperCase();
+ const validTicker=value=>/^[0-9]{4}[0-9A-Z]{0,2}$/.test(value);
+ if(!validTicker(stock)){
   try{
    const rows=await searchMatches(stock);
    if(!rows.length){setSearchStatus("找不到符合的股票名稱或代號");return;}
@@ -370,7 +371,7 @@ $("search").addEventListener("submit",async e=>{
    else{showSuggestions(rows);setSearchStatus("請從下方結果選擇股票");return;}
   }catch(error){setSearchStatus(error.message);return;}
  }
- if(!/^[0-9]{4,6}$/.test(stock)){setSearchStatus("請選擇上市或上櫃股票");return;}
+ if(!validTicker(stock)){setSearchStatus("請選擇有效的上市、上櫃股票或 ETF 代號");return;}
  const btn=$("submit");btn.disabled=true;setSearchStatus("正在整理資料…");$("result").hidden=true;clearSuggestions();
  try{
   const response=await fetch("/api/analyze?stock="+encodeURIComponent(stock));
@@ -454,7 +455,7 @@ const hero=$("hero-image");hero.addEventListener("load",()=>{
 });hero.addEventListener("error",()=>{hero.hidden=true;$("hero-title").hidden=false;});
 if(hero.complete&&hero.naturalWidth>0){hero.hidden=false;$("hero-title").hidden=true;}
 const requested=new URLSearchParams(location.search).get("stock");
-if(requested&&/^\d{4,6}$/.test(requested)){$("ticker").value=requested;$("search").requestSubmit();}
+if(requested&&/^[0-9]{4}[0-9A-Z]{0,2}$/i.test(requested)){$("ticker").value=requested.toUpperCase();$("search").requestSubmit();}
 refreshDaily();
 let width=0;window.addEventListener("resize",()=>{
  const w=Math.round($("kline").getBoundingClientRect().width);
