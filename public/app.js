@@ -407,13 +407,17 @@ function renderStockCard(stock){
    tags.append(el("span",label+" "+numberText(part?.earned)+" / "+max));
   }
   tags.append(el("span","資料涵蓋 "+numberText(stock.coveredPoints)+"%"));
+  if(Number.isFinite(stock.recommendationConfidence?.score))
+   tags.append(el("span","推薦可信度 "+numberText(stock.recommendationConfidence.score)+"%"));
   if(Number.isFinite(stock.valueScore))tags.append(el("span",
-   (stock.referenceCandidate?"官方初篩 ":"低估分數 ")+numberText(stock.valueScore)));
+   (stock.referenceCandidate?"官方初篩 ":"價值分數 ")+numberText(stock.valueScore)));
   if(stock.risk?.valueTrap)tags.append(el("span","Value Trap "+stock.risk.valueTrap.score+" · "+stock.risk.valueTrap.level));
   if(stock.risk?.abnormalTrading)tags.append(el("span","異常交易 "+stock.risk.abnormalTrading.level));
   if(stock.risk?.cyclical)tags.append(el("span","景氣循環 "+stock.risk.cyclical.level));
   if(stock.risk?.industryOutlook)tags.append(el("span","產業趨勢 "+stock.risk.industryOutlook.level));
-  if(stock.referenceCandidate)tags.append(el("span","待深度驗證"));
+  if(stock.recommendationEligible)tags.append(el("span","符合推薦門檻"));
+  else if(stock.referenceCandidate)tags.append(el("span","候補研究 · 待補驗證"));
+  else tags.append(el("span","候補研究 · 資料門檻未滿"));
   const actual=stock.financials||{};
   if(typeof actual.eps==="number")tags.append(el("span","EPS "+numberText(actual.eps)));
   if(typeof actual.operatingCashFlow==="number")
@@ -423,8 +427,9 @@ function renderStockCard(stock){
  }
  body.append(tags);
  right.append(el("strong",etf?"技術 "+numberText(stock.technicalScore)+" / 30":
+  Number.isFinite(stock.finalResearchScore)?"研究 "+numberText(stock.finalResearchScore)+" / 100":
   stock.referenceCandidate?"初篩 "+numberText(stock.valueScore)+" / 100":
-  (Number.isFinite(stock.valueScore)?"低估 "+numberText(stock.valueScore)+" / 100":
+  (Number.isFinite(stock.valueScore)?"價值 "+numberText(stock.valueScore)+" / 100":
    "綜合 "+numberText(stock.score)+" / 100")));
  right.append(el("small",showMetric(stock.close,etf?"":" 元")));
  const button=el("button","分析","daily-action");
