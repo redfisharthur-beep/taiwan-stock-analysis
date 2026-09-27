@@ -8,7 +8,7 @@ const wrangler=JSON.parse(readFileSync(new URL("../wrangler.jsonc",import.meta.u
 
 test("newbie homepage uses single daily list and stock keyword query with simple Analyze action",()=>{
  assert.match(html,/placeholder="輸入股票代碼或文字"/);
- assert.match(html,/綜合評分前五名<\/h2>/);
+ assert.match(html,/價值投資推薦 5檔<\/h2>/);
  assert.doesNotMatch(html,/id="market-sync"|全市場資料更新狀態|<h3>評分依據<\/h3>/);
  assert.doesNotMatch(html,/新手先看這裡：3 個數字怎麼理解？|class="newbie-guide"/);
  assert.match(js,/rows\.length/);
