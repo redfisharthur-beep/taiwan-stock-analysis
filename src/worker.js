@@ -1,6 +1,6 @@
 import {mergeVerifiedResearch} from "./top-five.js";
 import {tickerPattern,isETFCandidate} from "./instruments.js";
-import {finmind,officialQuote,scanOfficialUniverse,searchOfficialCompanies,normalize,reconcile} from "./providers.js";
+import {finmind,officialQuote,scanOfficialUniverse,searchOfficialCompanies,normalize,reconcile,rankUniverseCandidates} from "./providers.js";
 import {scoreStock,indicators} from "./scoring.js";
 import {researchNews} from "./news.js";
 import {summarizeFinancialStatements} from "./fundamentals.js";
@@ -138,124 +138,108 @@ async function analyze(stock,env,override=null,shared=null){
  if(typeof shared?.persist==="function")await shared.persist(clean,responseBody);
  return reply(responseBody);
 }
+// Free-plan homepage ranking: scan the whole official market once, then deeply
+// analyze only a very small candidate set. This deliberately avoids D1 and background jobs.
+async function analyzeRankingCandidate(candidate,env){
+ if(!env.FINMIND_TOKEN)throw Error("FINMIND_TOKEN 尚未設定");
+ const datasets=[
+  ["TaiwanStockPrice",410],
+  ["TaiwanStockMonthRevenue",520],
+  ["TaiwanStockFinancialStatements",520],
+  ["TaiwanStockInstitutionalInvestorsBuySell",35],
+  ["TaiwanStockCashFlowsStatement",600],
+  ["TaiwanStockBalanceSheet",240]
+ ];
+ const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,candidate.stock,name,days)));
+ if(data[0].status!=="fulfilled")return null;
+ const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
+ const clean=normalize(rows(0),rows(1),rows(2),rows(3),[],rows(4),[],[],rows(5));
+ // Reuse same-day official full-market valuation when available instead of another API call.
+ if(candidate.screen&&(candidate.screen.per!==null||candidate.screen.pbr!==null||candidate.screen.dividendYield!==null)){
+  clean.valuation=[{date:candidate.screen.date||candidate.date,per:candidate.screen.per??null,
+   pbr:candidate.screen.pbr??null,dividendYield:candidate.screen.dividendYield??null}];
+ }
+ if(!clean.prices.length)return null;
+ const official={market:candidate.market,source:candidate.source,name:candidate.name,kind:"stock",
+  close:candidate.close,date:candidate.date,url:candidate.url};
+ const verification=reconcile(official,clean.prices);
+ if(verification.state!=="一致")return null;
+ const score=scoreStock({...clean,official,newsResearch:null});
+ if(!Number.isFinite(score.score))return null;
+ const fundamental=score.parts?.fundamental||{earned:0,covered:0,max:40};
+ const technical=score.parts?.technical||{earned:0,covered:0,max:30};
+ const chips=score.parts?.chips||{earned:0,covered:0,max:30};
+ const items=fundamental.items||[];
+ const metric=name=>items.find(x=>x.name===name)?.value??null;
+ const eps=metric("EPS 與去年同季"),cash=metric("營業現金流（初步）"),
+  leverage=metric("獲利品質與負債");
+ return {stock:candidate.stock,name:candidate.name,market:candidate.market,kind:"stock",
+  close:candidate.close,date:candidate.date,score:score.score,scoreModel:"company_40_30_30",
+  newsDelta:0,coveredPoints:score.coveredPoints,
+  parts:{fundamental:{earned:fundamental.earned,covered:fundamental.covered,max:40},
+   technical:{earned:technical.earned,covered:technical.covered,max:30},
+   chips:{earned:chips.earned,covered:chips.covered,max:30}},
+  screening:{per:candidate.screen?.per??null,pbr:candidate.screen?.pbr??null,
+   dividendYield:candidate.screen?.dividendYield??null},
+  financials:{eps:eps?.eps??null,operatingCashFlow:cash,
+   debtRatioPct:leverage?.debtRatioPct??null},
+  detailVerified:true};
+}
+
+async function computeFreeMarketTopFive(env){
+ if(!env.FINMIND_TOKEN)return {ready:false,stocks:[],analyzedCount:0,
+  reason:"尚未設定 FINMIND_TOKEN，無法進行候選股深度評分。"};
+ const universe=await scanOfficialUniverse({priceCeiling:500});
+ const commonStocks=universe.stocks.filter(x=>x.kind==="stock"&&x.close>0&&x.close<=500);
+ // Entire official market is screened first. Only six candidates are deep-analyzed
+ // to stay within free Worker subrequest limits.
+ const candidates=rankUniverseCandidates(commonStocks,"daily",6);
+ const settled=await Promise.allSettled(candidates.map(x=>analyzeRankingCandidate(x,env)));
+ const analyzed=settled.filter(x=>x.status==="fulfilled"&&x.value).map(x=>x.value);
+ const stocks=analyzed.sort((a,b)=>b.score-a.score||
+   b.coveredPoints-a.coveredPoints||a.stock.localeCompare(b.stock))
+  .slice(0,5).map((x,i)=>({...x,rank:i+1}));
+ const unavailable=[
+  "沒有逐檔全市場執行融資餘額資料，因此籌碼面最多先由法人買賣超計分；缺少部分以 0 分處理並顯示涵蓋率。",
+  "首頁不批次抓新聞與永豐 Shioaji，避免免費額度與券商連線限制；點入個股時仍可做更完整核對。",
+  "這是『全市場官方初篩後的深度候選前五名』，不是把全市場約 2,300 檔全部跑完完整財報／技術／籌碼後的絕對排名。"
+ ];
+ return {ready:stocks.length>0,marketDate:universe.marketDate,asOf:new Date().toISOString(),
+  stocks,analyzedCount:analyzed.length,
+  universe:{total:universe.universeCount,eligible:commonStocks.length,
+   screened:candidates.length,deepAnalyzed:analyzed.length,scannedAll:true},
+  warnings:universe.warnings||[],unavailable,
+  reason:stocks.length?
+   "已從上市、上櫃官方全市場先做行情／估值初篩，再對候選股做 FinMind 深度評分。":
+   "官方全市場已完成初篩，但候選股深度資料暫不足，尚無可核實排名。"};
+}
+
 // D1 data collection is scheduled, bounded, and tracked. Unconfigured databases do not
 // trigger public GET writes or pretend to contain a full-market financial history.
-async function performScheduled(controller,env){
- if(!hasMarketDB(env)){
-  console.error("[market-sync] no MARKET_DB binding in scheduled execution");
-  return;
- }
- const db=env.MARKET_DB,cron=controller.cron||"";
- // Do not run the expensive full-market summary on every five-minute tick.
- // The weekday universe cron owns full official-market refreshes; regular ticks
- // only claim and analyze the next queued security.
- if(cron==="0 11 * * MON-FRI"){
-  let universe=null,saved=0,lastError=null,status="scan_failed";
-  try{
-   universe=await scanOfficialUniverse();
-   const usable=universe.markets.some(x=>x.date&&x.total>0);
-   if(!usable)status="skipped_missing_official_quotes";
-   else{
-    try{
-     saved=await saveUniverse(db,universe);
-     status=universe.marketCount!==2?"saved_partial_market":
-      universe.markets.every(x=>x.registryAvailable)?"saved":"saved_quote_fallback_registry_pending";
-    }catch(error){status="write_failed";lastError=String(error?.message||error).slice(0,300);}
-   }
-  }catch(error){lastError=String(error?.message||error).slice(0,300)}
-  const attempt={at:new Date().toISOString(),status,saved,
-   marketCount:universe?.marketCount??0,marketDate:universe?.marketDate??null,
-   markets:(universe?.markets||[]).map(x=>({market:x.market,date:x.date,total:x.total,
-    registryAvailable:x.registryAvailable,registryError:x.registryError||null,
-    quoteUrl:x.quoteUrl||null})),
-   warnings:universe?.warnings||[],lastError};
-  await db.prepare("INSERT INTO sync_state(key,value,updated_at) VALUES ('universe_last_attempt',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
-   .bind(JSON.stringify(attempt),attempt.at).run();
-  if(status.startsWith("saved"))console.info("[market-sync] universe saved",JSON.stringify(attempt));
-  else console.warn("[market-sync] universe skipped",JSON.stringify(attempt));
-  return;
- }
- if(!env.FINMIND_TOKEN){
-  const at=new Date().toISOString();
-  const state={at,status:"blocked_missing_finmind_token",
-   message:"Cloudflare Worker 未設定 FINMIND_TOKEN，無法開始逐檔研究分析。"};
-  await db.prepare("INSERT INTO sync_state(key,value,updated_at) VALUES ('analysis_last_attempt',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
-   .bind(JSON.stringify(state),at).run();
-  console.error("[market-sync] analysis blocked",JSON.stringify(state));
-  return;
- }
- // Bounded batches make the first five researched results available sooner;
- // each item is still independently source-verified and persisted.
- for(let attempt=0;attempt<3;attempt++){
-  const row=await claimNextCompany(db);
-  if(!row)break;
-  const override={kind:row.industry==="ETF"?"etf":"stock",market:row.market,source:row.market==="上市"?"TWSE":"TPEx",name:row.name,
-   close:row.close,date:row.date,url:row.market==="上市"?
-    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL":
-    "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"};
-  if(row.industry==="ETF"){
-   try{
-    const response=await analyzeETF(row.stock,env,{quote:override,errors:[]});
-    if(!response.ok)throw Error("ETF 深入分析 HTTP "+response.status);
-    await saveETFResearch(db,row,await response.json());
-   }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error))}
-   continue;
-  }
-  try{
-   const response=await analyze(row.stock,env,override,{bulk:false,skipNews:true,newsByMarket:{
-     "上市":{rows:[],error:"排程未批次核對新聞"},
-     "上櫃":{rows:[],error:"排程未批次核對新聞"}},
-     persist:(clean,body)=>saveResearch(db,row,clean,body)});
-   if(!response.ok)throw Error("深入分析 HTTP "+response.status);
-  }catch(error){await recordResearchFailure(db,row.stock,String(error.message||error));}
- }
+async function performScheduled(){
+ // Free-plan architecture is on-demand + cache only. No D1 and no background cron.
+ return;
 }
+
 // Homepage lists only verified, fully covered results from the entire stored universe.
 // Never use an unscored price/valuation prescreen as an apparent top-score recommendation.
 async function computeDailyObservations(env){
- if(!hasMarketDB(env))return {ready:false,stocks:[],analyzedCount:0,
-  reason:"全市場研究資料庫尚未啟用，無法核實各檔完整評分。"};
- const [summary,groups]=await Promise.all([
-  getMarketSummary(env.MARKET_DB),getVerifiedTopFive(env.MARKET_DB)
- ]);
- const stocks=mergeVerifiedResearch(groups);
- const attempt=summary.lastUniverseAttempt;
- const emptyReason=!attempt?"目前名冊為空，尚無同步執行紀錄；請確認最新 Worker 已部署且五分鐘排程已啟用。":
-  attempt.status==="write_failed"?"官方名冊已取得，但 D1 寫入失敗："+(attempt.lastError||"請檢查資料庫權限"):
-  attempt.status==="skipped_missing_official_quotes"?"官方兩市場行情尚未同時取得："+
-   ((attempt.warnings||[]).join("；")||"請查看 /api/market-status 中最近一次同步紀錄"):
-  attempt.status==="scan_failed"?"名冊同步失敗："+(attempt.lastError||"官方來源暫不可用"):
-  "最近一次同步狀態："+attempt.status+"；請查看 /api/market-status。";
- const allComparable=summary.eligible>0&&
-  summary.currentProfiles>=summary.eligible&&
-  summary.fullCoverage>=summary.eligibleCompanies&&
-  summary.fullETFTechnical>=summary.eligibleETFs&&
-  summary.markets?.length===2&&summary.markets.every(m=>m.registryAvailable);
- return {ready:stocks.length>0,marketDate:summary.marketDate,
-  asOf:new Date().toISOString(),stocks,analyzedCount:summary.currentProfiles,
-  universe:{total:summary.total,eligible:summary.eligible,
-   profiles:summary.currentProfiles,fullCoverage:summary.fullCoverage,
-   fullETFTechnical:summary.fullETFTechnical,scannedAll:allComparable},
-  reason:!summary.total?emptyReason:
-   !allComparable?"僅列已核實且適用資料完整的標的；"+
-    (summary.markets?.length!==2?"有市場行情未取得，僅呈現已同步市場，暫非全市場前五名。":"仍有股票或 ETF 尚未評分，因此不是全市場最終前五名。"):
-   stocks.length<5?"目前資料符合完整評分條件的標的不足五檔。":
-   "股票為公司40／30／30總分，ETF為獨立技術30分折算百分比；兩類評分依據不同。"};
+ return computeFreeMarketTopFive(env);
 }
+
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url);
  if(url.pathname==="/api/health")return reply({ok:true,finmindConfigured:!!env.FINMIND_TOKEN,
-  rankingMode:"verified_100_coverage_full_market_scores",sinopacConfigured:sinopacReady(env),
+  rankingMode:"official_full_market_prescreen_plus_finmind_candidate_scoring",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.23.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.30.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
   try{
    let results=[];
    results=await searchOfficialCompanies(q);
-   if(!results.length&&hasMarketDB(env))results=await searchSavedStocks(env.MARKET_DB,q);
    return reply({results},200,300);
   }catch(error){return reply({results:[],error:"股票名冊暫不可用"},503)}
  }
@@ -267,11 +251,7 @@ export default {async fetch(request,env,ctx){
   const page=Math.max(1,Math.min(10000,Number.parseInt(url.searchParams.get("page")||"1",10)||1));
   const pageSize=30;
   try{
-   if(hasMarketDB(env)){
-    const data=await getMarketPage(env.MARKET_DB,{market,query,page,pageSize});
-    return reply({...data,market,query,configured:true},200,90);
-   }
-   // Without D1 show only verified public identity/quotes; never invent analyzed coverage.
+   // D1 is intentionally disabled on the free-plan architecture.
    const snapshot=await scanOfficialUniverse();
    const matches=snapshot.allStocks.filter(r=>(market==="all"||
      market==="ETF"&&r.kind==="etf"||market==="股票"&&r.kind==="stock"||
@@ -288,22 +268,18 @@ export default {async fetch(request,env,ctx){
   }catch(error){return reply({error:"全市場名冊暫不可用",detail:String(error.message||error)},503)}
  }
  if(url.pathname==="/api/market-status"){
-  if(!hasMarketDB(env))return reply({configured:false,reason:"尚未綁定並遷移 D1 市場資料庫"},200,60);
-  try{
-   const summary=await getMarketSummary(env.MARKET_DB);
-   return reply({...summary,finmindConfigured:!!env.FINMIND_TOKEN,
-    analysisBlockedReason:env.FINMIND_TOKEN?null:
-     "Cloudflare Worker 尚未設定 FINMIND_TOKEN，因此背景逐檔分析不會啟動。"},200,60);
-  }
-  catch{return reply({configured:true,error:"資料表尚未初始化"},503)}
+  return reply({configured:true,databaseMode:"disabled_free_plan",d1:false,
+   finmindConfigured:!!env.FINMIND_TOKEN,
+   rankingMode:"official_full_market_prescreen_plus_finmind_candidate_scoring",
+   note:"免費版不使用 D1；首頁以官方全市場初篩＋少量 FinMind 候選深度分析即時計算。"},200,300);
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.21.0");
+  const key=new Request(url.origin+"/api/observations?model=0.30.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
-   const response=reply(body,200,300);
+   const response=reply(body,200,1800);
    // Cache both ready and not-ready states so repeated homepage refreshes do not
    // rescan D1 while the research queue is still warming up.
    ctx.waitUntil(cache.put(key,response.clone()));
@@ -329,7 +305,7 @@ export default {async fetch(request,env,ctx){
       payload.industryComparison=buildOfficialIndustryComparison(stock,official);
      }catch(error){payload.industryComparison={items:[],reason:"官方同業估值暫不可用，PR 待查"};}
     }
-    if(payload.kind!=="etf"&&hasMarketDB(env)){
+    if(false&&payload.kind!=="etf"&&hasMarketDB(env)){
      try{
       const company=await getSavedCompany(env.MARKET_DB,stock);
       if(company){
