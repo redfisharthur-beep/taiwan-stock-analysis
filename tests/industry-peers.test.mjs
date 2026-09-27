@@ -29,3 +29,17 @@ test("stored peer comparison includes drilldown rows for comparable same-period 
  assert.equal(pe.peers.length,5);
  assert.deepEqual(pe.peers.map(x=>x.value),[12,13,14,15,16]);
 });
+
+test("lower PE and PB receive higher desirability PR",()=>{
+ const allStocks=Array.from({length:6},(_,i)=>({
+  stock:String(1101+i),name:"同業"+(i+1),market:"上市",industry:"測試業",source:"TWSE",
+  screen:{date:"2026-09-26",per:10+i,pbr:1+i*.2,dividendYield:2+i*.1}
+ }));
+ const result=buildOfficialIndustryComparison("1101",{allStocks});
+ const pe=result.items.find(x=>x.key==="per");
+ const pb=result.items.find(x=>x.key==="pbr");
+ const lowPE=pe.peers.find(x=>x.stock==="1101"),highPE=pe.peers.find(x=>x.stock==="1106");
+ const lowPB=pb.peers.find(x=>x.stock==="1101"),highPB=pb.peers.find(x=>x.stock==="1106");
+ assert.ok(lowPE.pr>highPE.pr);
+ assert.ok(lowPB.pr>highPB.pr);
+});
