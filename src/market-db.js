@@ -37,7 +37,8 @@ export async function getMarketSummary(db){
    SUM(CASE WHEN close>0 AND quote_date IS NOT NULL AND COALESCE(industry,'')!='ETF' THEN 1 ELSE 0 END) AS eligibleCompanies,
    SUM(CASE WHEN last_attempt IS NOT NULL THEN 1 ELSE 0 END) AS attempted,
    SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS failed
-   FROM companies WHERE last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
+   FROM companies c WHERE c.last_scan_at=(
+    SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=c.market)`).first(),
   db.prepare(`SELECT COUNT(p.stock) AS profiles,
    SUM(CASE WHEN p.market_date=c.quote_date AND c.close>0 THEN 1 ELSE 0 END) AS currentProfiles,
    SUM(CASE WHEN p.financial_period IS NOT NULL THEN 1 ELSE 0 END) AS finance,
@@ -57,7 +58,8 @@ export async function getMarketSummary(db){
      AND json_extract(p.metrics_json,'$.verified')=1 THEN 1 ELSE 0 END) AS fullETF,
    MAX(p.fetched_at) AS lastResearch
    FROM companies c JOIN market_profiles p ON p.stock=c.stock
-   WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)`).first(),
+   WHERE c.last_scan_at=(
+    SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=c.market)`).first(),
   db.prepare("SELECT value,updated_at FROM sync_state WHERE key='universe'").first(),
   db.prepare("SELECT value,updated_at FROM sync_state WHERE key='universe_last_attempt'").first()]);
  let original=null,attempt=null;
@@ -87,10 +89,11 @@ export async function getVerifiedTopFive(db){
  const base=`SELECT c.stock,c.name,c.market,c.industry,c.close,c.quote_date,
   c.per,c.pbr,c.dividend_yield,p.score_json,p.metrics_json
   FROM companies c JOIN market_profiles p ON p.stock=c.stock
-  WHERE c.last_scan_at=(SELECT MAX(last_scan_at) FROM companies)
+  WHERE c.last_scan_at=(
+    SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=c.market)
    AND c.close>0 AND c.quote_date IS NOT NULL AND p.market_date=c.quote_date
-   AND c.quote_date=(SELECT MAX(c2.quote_date) FROM companies c2
-     WHERE c2.market=c.market AND c2.last_scan_at=c.last_scan_at)
+   AND c.quote_date=(SELECT MAX(c3.quote_date) FROM companies c3
+     WHERE c3.market=c.market AND c3.last_scan_at=c.last_scan_at)
    AND json_extract(p.metrics_json,'$.verified')=1`;
  const stockSql=base+` AND COALESCE(c.industry,'')!='ETF'
    AND json_extract(p.score_json,'$.coveragePercent')=100
@@ -202,7 +205,8 @@ export async function claimNextCompany(db){
  const refreshCooldown=new Date(Date.now()-20*3600000).toISOString();
  const claimed=await db.prepare(`UPDATE companies SET last_attempt=?
  WHERE stock=(SELECT stock FROM companies
-  WHERE last_scan_at=(SELECT MAX(last_scan_at) FROM companies)
+  WHERE last_scan_at=(
+    SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=companies.market)
    AND close>0 AND quote_date IS NOT NULL
    AND ((last_attempt IS NULL)
     OR (last_profile_at IS NULL AND last_attempt<?)
