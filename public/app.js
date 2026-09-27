@@ -347,11 +347,13 @@ function renderStockCard(stock){
    tags.append(el("span",label+" "+numberText(part?.earned)+" / "+max));
   }
   tags.append(el("span","資料涵蓋 "+numberText(stock.coveredPoints)+"%"));
-  if(Number.isFinite(stock.valueScore))tags.append(el("span","低估分數 "+numberText(stock.valueScore)));
+  if(Number.isFinite(stock.valueScore))tags.append(el("span",
+   (stock.referenceCandidate?"官方初篩 ":"低估分數 ")+numberText(stock.valueScore)));
   if(stock.risk?.valueTrap)tags.append(el("span","Value Trap "+stock.risk.valueTrap.score+" · "+stock.risk.valueTrap.level));
   if(stock.risk?.abnormalTrading)tags.append(el("span","異常交易 "+stock.risk.abnormalTrading.level));
   if(stock.risk?.cyclical)tags.append(el("span","景氣循環 "+stock.risk.cyclical.level));
   if(stock.risk?.industryOutlook)tags.append(el("span","產業趨勢 "+stock.risk.industryOutlook.level));
+  if(stock.referenceCandidate)tags.append(el("span","待深度驗證"));
   const actual=stock.financials||{};
   if(typeof actual.eps==="number")tags.append(el("span","EPS "+numberText(actual.eps)));
   if(typeof actual.operatingCashFlow==="number")
@@ -361,6 +363,7 @@ function renderStockCard(stock){
  }
  body.append(tags);
  right.append(el("strong",etf?"技術 "+numberText(stock.technicalScore)+" / 30":
+  stock.referenceCandidate?"初篩 "+numberText(stock.valueScore)+" / 100":
   (Number.isFinite(stock.valueScore)?"低估 "+numberText(stock.valueScore)+" / 100":
    "綜合 "+numberText(stock.score)+" / 100")));
  right.append(el("small",showMetric(stock.close,etf?"":" 元")));
@@ -371,12 +374,13 @@ function renderStockCard(stock){
 }
 async function refreshDaily(){
  const status=$("daily-status"),list=$("daily-list");
- list.replaceChildren();status.hidden=false;status.textContent="正在分析全市場價值投資候選…";
+ list.replaceChildren();status.hidden=false;status.textContent="分析中...";
  try{
   const response=await fetch("/api/observations");
   const d=await response.json();
   if(!response.ok)throw Error(d.reason||"研究服務暫不可用");
-  const rows=(d.stocks||[]).filter(x=>Number.isFinite(x.score)&&x.coveredPoints>0).slice(0,5);
+  const rows=(d.stocks||[]).filter(x=>(Number.isFinite(x.score)||x.referenceCandidate)&&
+   (x.coveredPoints>0||x.referenceCandidate)).slice(0,5);
   status.textContent=rows.length?"":(d.reason||"");
   status.hidden=rows.length||!status.textContent;
   for(const stock of rows)list.append(renderStockCard(stock));
