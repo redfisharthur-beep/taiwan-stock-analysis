@@ -32,9 +32,9 @@ test("single original stylesheet defines Morandi palettes and rounded light font
  assert.doesNotMatch(css,/font-weight:(?:300|400|500|600)/);
  assert.match(html,/Noto\+Sans\+TC:wght@(?:300;)?400;500;600;700;800/);
 });
-test("Cloudflare cron weekday names cannot unintentionally include Sunday",()=>{
- assert.deepEqual(wrangler.triggers.crons,
- ["*/5 * * * *","0 11 * * MON-FRI","30 11 * * FRI"]);
+test("free-plan deployment intentionally has no background cron jobs",()=>{
+ assert.equal(wrangler.triggers,undefined);
+ assert.equal(wrangler.d1_databases,undefined);
 });
 
 test("requested long boilerplate is absent from both HTML and stock-card renderers",()=>{
