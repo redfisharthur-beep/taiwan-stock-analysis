@@ -339,6 +339,7 @@ async function fetchJSONEndpoint(url){
 async function loadDeferredAnalysis(stock){
  const endpoints=[
   ["/api/analyze-financial?stock=","financial"],
+  ["/api/analyze-chips?stock=","chips"],
   ["/api/analyze-industry?stock=","industry"],
   ["/api/analyze-news?stock=","news"],
   ["/api/analyze-broker?stock=","broker"]
@@ -354,6 +355,8 @@ async function loadDeferredAnalysis(stock){
   if(kind==="financial"){
    current.financialInsights=data.financialInsights||current.financialInsights;
    current.datasetHealth=[...(current.datasetHealth||[]),...(data.datasetHealth||[])];
+  }else if(kind==="chips"){
+   if(data.chips&&current.score?.parts)current.score.parts.chips=data.chips;
   }else if(kind==="industry"){
    current.industryComparison=data.industryComparison||current.industryComparison;
   }else if(kind==="news"){
