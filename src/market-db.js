@@ -96,30 +96,34 @@ export async function getVerifiedTopFive(db){
      WHERE c3.market=c.market AND c3.last_scan_at=c.last_scan_at)
    AND json_extract(p.metrics_json,'$.verified')=1`;
  const stockSql=base+` AND COALESCE(c.industry,'')!='ETF'
-   AND json_extract(p.score_json,'$.coveragePercent')=100
-   AND json_type(p.score_json,'$.score') IN ('integer','real')
-   AND json_extract(p.score_json,'$.parts.fundamental.covered')=40
-   AND json_extract(p.score_json,'$.parts.technical.covered')=30
-   AND json_extract(p.score_json,'$.parts.chips.covered')=30
-   ORDER BY CAST(json_extract(p.score_json,'$.score') AS REAL) DESC,c.stock ASC LIMIT 5`;
+   AND json_type(p.score_json,'$.observedPoints') IN ('integer','real')
+   AND json_extract(p.score_json,'$.coveredPoints')>0
+   ORDER BY CAST(COALESCE(json_extract(p.score_json,'$.score'),
+     MAX(0,MIN(100,json_extract(p.score_json,'$.observedPoints')+
+       COALESCE(json_extract(p.score_json,'$.newsDelta'),0)))) AS REAL) DESC,
+     CAST(json_extract(p.score_json,'$.coveragePercent') AS REAL) DESC,c.stock ASC LIMIT 5`;
  const etfSql=base+` AND c.industry='ETF'
-   AND json_extract(p.score_json,'$.parts.technical.covered')=30
+   AND json_extract(p.score_json,'$.parts.technical.covered')>0
    AND json_type(p.score_json,'$.parts.technical.earned') IN ('integer','real')
-   ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,c.stock ASC LIMIT 5`;
+   ORDER BY CAST(json_extract(p.score_json,'$.parts.technical.earned') AS REAL) DESC,
+     CAST(json_extract(p.score_json,'$.parts.technical.covered') AS REAL) DESC,c.stock ASC LIMIT 5`;
  const [stockRows,etfRows]=await Promise.all([db.prepare(stockSql).all(),db.prepare(etfSql).all()]);
  const stocks=[],etfs=[];
  for(const r of stockRows.results||[]){
   let score;try{score=JSON.parse(r.score_json)}catch{continue}
-  if(score?.coveragePercent!==100||!Number.isFinite(score.score)||
-    ["fundamental","technical","chips"].some(k=>score.parts?.[k]?.covered!==score.parts?.[k]?.max))
-   continue;
+  const derivedScore=Number.isFinite(score?.score)?score.score:
+   Number.isFinite(score?.observedPoints)?
+    Math.max(0,Math.min(100,score.observedPoints+(Number.isFinite(score?.newsDelta)?score.newsDelta:0))):null;
+  const coveredPoints=Number.isFinite(score?.coveredPoints)?score.coveredPoints:
+   Number.isFinite(score?.coveragePercent)?score.coveragePercent:0;
+  if(!Number.isFinite(derivedScore)||coveredPoints<=0)continue;
   const items=score.parts.fundamental.items||[];
   const metric=name=>items.find(x=>x.name===name)?.value??null;
   const eps=metric("EPS 與去年同季"),cash=metric("營業現金流（初步）"),
    leverage=metric("獲利品質與負債");
   stocks.push({stock:r.stock,name:r.name,market:r.market,kind:"stock",
-   close:r.close,date:r.quote_date,score:score.score,scoreModel:"company_40_30_30",
-   newsDelta:score.newsDelta??0,coveredPoints:100,
+   close:r.close,date:r.quote_date,score:derivedScore,scoreModel:"company_40_30_30",
+   newsDelta:score.newsDelta??0,coveredPoints,
    parts:Object.fromEntries(["fundamental","technical","chips"].map(k=>
     [k,{earned:score.parts[k].earned,covered:score.parts[k].covered,max:score.parts[k].max}])),
    screening:{per:r.per,pbr:r.pbr,dividendYield:r.dividend_yield},
