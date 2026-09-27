@@ -34,13 +34,13 @@ async function mockWorker(path){
    {waitUntil:()=>{}});
  }finally{globalThis.fetch=originalFetch;globalThis.caches=originalCache}
 }
-test("homepage never invents a full-market top five without persisted source-verified scores",async()=>{
+test("homepage no-D1 mode fails clearly when FinMind token is absent",async()=>{
  const response=await mockWorker("/api/observations");
  assert.equal(response.status,200);
  const data=await response.json();
  assert.equal(data.ready,false);
  assert.deepEqual(data.stocks,[]);
- assert.match(data.reason,/資料庫/);
+ assert.match(data.reason,/FINMIND_TOKEN/);
 });
 test("ETF lookup returns independent fund price/technical model even without FinMind/D1",async()=>{
  const response=await mockWorker("/api/analyze?stock=0050");
