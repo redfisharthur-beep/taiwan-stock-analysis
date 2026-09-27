@@ -7,7 +7,7 @@ import {summarizeFinancialStatements} from "./fundamentals.js";
 import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js";
 import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
-import {assessCandidateRisk,calculateValueScore} from "./risk.js";
+import {assessCandidateRisk,assessIndustryOutlook,calculateValueScore} from "./risk.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
@@ -252,9 +252,10 @@ async function computeFreeMarketTopFive(env){
   reason:"尚未設定 FINMIND_TOKEN，無法進行候選股深度評分。"};
  const universe=await scanOfficialUniverse({priceCeiling:500});
  const commonStocks=universe.stocks.filter(x=>x.kind==="stock"&&x.close>0&&x.close<=500);
+ const industryEligible=commonStocks.filter(x=>!assessIndustryOutlook(x.industry).excluded);
 
- // 1) Entire TWSE/TPEx official market -> 100 valuation candidates.
- const cheap100=rankUniverseCandidates(commonStocks,"daily",100);
+ // 1) Entire TWSE/TPEx official market -> industry gate -> 100 valuation candidates.
+ const cheap100=rankUniverseCandidates(industryEligible,"daily",100);
 
  // 2) 100 -> 30: free official quality proxy (positive earnings/valuation completeness/liquidity).
  const quality30=qualityProxy(cheap100).slice(0,30);
@@ -288,7 +289,8 @@ async function computeFreeMarketTopFive(env){
  ];
  return {ready:stocks.length>0,marketDate:universe.marketDate,asOf:new Date().toISOString(),
   stocks,analyzedCount:analyzed.length,
-  funnel:{official:commonStocks.length,cheap:cheap100.length,quality:quality30.length,
+  funnel:{official:commonStocks.length,industryEligible:industryEligible.length,
+   industryExcluded:commonStocks.length-industryEligible.length,cheap:cheap100.length,quality:quality30.length,
    relativeValue:relative15.length,deepCandidates:deep10.length,deepAnalyzed:analyzed.length,
    riskEligible:eligible.length,shown:stocks.length},
   universe:{total:universe.universeCount,eligible:commonStocks.length,
@@ -316,7 +318,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"2300_to_100_to_30_to_15_to_10_to_5_free_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.32.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.33.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -358,7 +360,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.32.0");
+  const key=new Request(url.origin+"/api/observations?model=0.33.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
