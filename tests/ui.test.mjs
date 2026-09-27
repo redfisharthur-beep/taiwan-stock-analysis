@@ -82,3 +82,9 @@ test("search accepts alphanumeric ETF tickers such as 00772B",()=>{
  assert.match(js,/\^\[0-9\]\{4\}\[0-9A-Z\]\{0,2\}\$/);
  assert.match(js,/toUpperCase\(\)/);
 });
+
+test("individual analyze handles non-JSON backend failures safely",()=>{
+ assert.match(js,/content-type/);
+ assert.match(js,/API 回傳格式異常/);
+ assert.match(js,/Accept":"application\/json/);
+});
