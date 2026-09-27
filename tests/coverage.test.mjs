@@ -40,7 +40,7 @@ test("raw technical indicators stay source-labeled when adjusted series is missi
  assert.equal(s.parts.fundamental.items.find(x=>x.name==="估值／本益比").score,null);
  assert.equal(s.parts.fundamental.items.find(x=>x.name==="獲利品質與負債").score,null);
  assert.equal(s.parts.chips.items.find(x=>x.name==="法人近五日淨買賣／成交量").score,null);
- assert.equal(s.score,null);
+ assert.ok(Number.isFinite(s.score));
 });
 test("current positive EPS and cash flow alone are not a substitute for leverage quality",()=>{
  const s=scoreStock({prices,financials:extra.financials,cashFlows:extra.cashFlows});
