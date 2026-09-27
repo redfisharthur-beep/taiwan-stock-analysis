@@ -74,7 +74,7 @@ test("scheduled queue prioritizes never-tried stocks and cools down failures",as
  assert.equal(company.stock,"2330");
  const selectStatement=db.queries.find(x=>x.sql.includes("SELECT q.stock,q.name,q.market"));
  assert.match(selectStatement.sql,/q\.last_attempt IS NULL/);
- assert.match(selectStatement.sql,/c2\.market=q\.market/);
+ assert.doesNotMatch(selectStatement.sql,/SELECT MAX\(c2\.last_scan_at\)/);
  assert.equal(selectStatement.args.length,2);
  const updateStatement=db.queries.find(x=>x.sql.includes("UPDATE companies SET last_attempt"));
  assert.ok(updateStatement);
