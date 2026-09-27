@@ -180,7 +180,15 @@ async function performScheduled(controller,env){
   else console.warn("[market-sync] universe skipped",JSON.stringify(attempt));
   return;
  }
- if(!env.FINMIND_TOKEN)return;
+ if(!env.FINMIND_TOKEN){
+  const at=new Date().toISOString();
+  const state={at,status:"blocked_missing_finmind_token",
+   message:"Cloudflare Worker 未設定 FINMIND_TOKEN，無法開始逐檔研究分析。"};
+  await db.prepare("INSERT INTO sync_state(key,value,updated_at) VALUES ('analysis_last_attempt',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+   .bind(JSON.stringify(state),at).run();
+  console.error("[market-sync] analysis blocked",JSON.stringify(state));
+  return;
+ }
  // Bounded batches make the first five researched results available sooner;
  // each item is still independently source-verified and persisted.
  for(let attempt=0;attempt<3;attempt++){
@@ -245,7 +253,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"verified_100_coverage_full_market_scores",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.21.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
+  version:"0.22.0",marketDBConfigured:hasMarketDB(env),time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -286,7 +294,12 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/market-status"){
   if(!hasMarketDB(env))return reply({configured:false,reason:"尚未綁定並遷移 D1 市場資料庫"},200,60);
-  try{return reply(await getMarketSummary(env.MARKET_DB),200,60)}
+  try{
+   const summary=await getMarketSummary(env.MARKET_DB);
+   return reply({...summary,finmindConfigured:!!env.FINMIND_TOKEN,
+    analysisBlockedReason:env.FINMIND_TOKEN?null:
+     "Cloudflare Worker 尚未設定 FINMIND_TOKEN，因此背景逐檔分析不會啟動。"},200,60);
+  }
   catch{return reply({configured:true,error:"資料表尚未初始化"},503)}
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
