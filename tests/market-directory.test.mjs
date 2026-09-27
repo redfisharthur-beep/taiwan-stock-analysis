@@ -21,7 +21,8 @@ function mockDB(records){
      if(sql.includes("UPDATE companies SET last_attempt"))return null;
      return null;
     },
-    async all(){queries.push({sql:this.sql,args:this.args});return {results:records}}};
+    async all(){queries.push({sql:this.sql,args:this.args});return {results:records}},
+    async run(){queries.push({sql:this.sql,args:this.args});return {success:true}}};
    return statement;
   }
  };
