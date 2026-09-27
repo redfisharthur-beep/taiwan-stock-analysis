@@ -113,6 +113,21 @@ function institutionalFiveDayRatio(institutional=[],prices=[]){
  }
  return volume>0?net/volume*100:null;
 }
+const incomeValue=(rows,date,keys)=>{
+ const hit=rows.find(x=>x.date===date&&keys.includes(String(x.type||"").toLowerCase()));
+ return hit&&finite(Number(hit.value))?Number(hit.value):null;
+};
+function nonOperatingRisk(financials=[]){
+ const dates=[...new Set(financials.map(x=>x.date).filter(Boolean))].sort();
+ const date=dates.at(-1)||null;
+ if(!date)return {score:0,date:null,operatingIncome:null,netIncome:null,ratio:null};
+ const operating=incomeValue(financials,date,["operatingincome","operatingprofit","operatingincomeloss"]);
+ const net=incomeValue(financials,date,["incomeaftertaxes","netincome","netincomeloss","profitloss",
+  "netincomelossattributabletoownersofparent","profitlossattributabletoownersofparent"]);
+ const ratio=finite(operating)&&operating>0&&finite(net)?net/operating:null;
+ const score=ratio!==null&&ratio>=2.5?20:ratio!==null&&ratio>=1.8?12:ratio!==null&&ratio>=1.4?6:0;
+ return {score,date,operatingIncome:operating,netIncome:net,ratio};
+}
 export function assessCandidateRisk({industry,prices=[],financials=[],institutional=[],screening={}}={}){
  const industryOutlook=assessIndustryOutlook(industry);
  const rows=[...prices].filter(x=>num(x.close)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
@@ -155,6 +170,7 @@ export function assessCandidateRisk({industry,prices=[],financials=[],institutio
  abnormal=clamp(abnormal);
 
  const instRatio=institutionalFiveDayRatio(institutional,rows);
+ const nonOperating=nonOperatingRisk(financials);
  let valueTrap=0;
  if(latestEPS!==null&&latestEPS<=0)valueTrap+=30;
  if(epsYoY!==null&&epsYoY<=-20)valueTrap+=25;
@@ -165,6 +181,7 @@ export function assessCandidateRisk({industry,prices=[],financials=[],institutio
  if(dd60!==null&&dd60>=25&&(epsYoY!==null&&epsYoY<0||instRatio!==null&&instRatio<0))valueTrap+=15;
  if(ret20!==null&&ret20<=-20&&(epsYoY!==null&&epsYoY<0))valueTrap+=10;
  if(cyclical>=70)valueTrap+=10;
+ if(nonOperating.score)valueTrap+=nonOperating.score;
  valueTrap=clamp(valueTrap);
 
  const label=x=>x>=60?"高":x>=30?"中":"低";
@@ -176,7 +193,8 @@ export function assessCandidateRisk({industry,prices=[],financials=[],institutio
    rsi14,annualizedVolatility20Pct:vol20},
   valueTrap:{score:valueTrap,level:label(valueTrap),
    epsYoYPct:epsYoY,institutionalFiveDayRatioPct:instRatio,
-   belowMA60:lastClose!==null&&ma60>0?lastClose<ma60:null,maxDrawdown60Pct:dd60},
+   belowMA60:lastClose!==null&&ma60>0?lastClose<ma60:null,maxDrawdown60Pct:dd60,
+   nonOperating},
   industryOutlook,
   excluded:industryOutlook.modelUnsupported||abnormal>=60||valueTrap>=60||cyclical>=80
  };
@@ -184,9 +202,19 @@ export function assessCandidateRisk({industry,prices=[],financials=[],institutio
 
 // Value score represents attractiveness before recommendation-confidence scaling.
 // Candidate-specific risk is deducted later so risk is not double-counted.
-export function calculateValueScore({compositeScore=0,relativePoints=0,qualityPoints=0,risk}={}){
+export function calculateValueScore({compositeScore=0,relativePoints=0,qualityPoints=0,risk,
+ componentScores=null,accountingPenalty=0}={}){
  const outlook=risk?.industryOutlook||{};
- const raw=(Number(compositeScore)||0)+Math.min(12,Number(relativePoints)||0)*1.2+
+ let base=Number(compositeScore)||0;
+ if(componentScores){
+  // Value-investing ranking deliberately reduces short-term technical influence:
+  // fundamental 65%, chips 20%, technical 15%.
+  const f=Math.max(0,Math.min(40,Number(componentScores.fundamental)||0))/40*65;
+  const c=Math.max(0,Math.min(30,Number(componentScores.chips)||0))/30*20;
+  const t=Math.max(0,Math.min(30,Number(componentScores.technical)||0))/30*15;
+  base=f+c+t-Math.max(0,Number(accountingPenalty)||0);
+ }
+ const raw=base+Math.min(12,Number(relativePoints)||0)*1.2+
   Math.min(13,Number(qualityPoints)||0)*0.35-(outlook.penalty||0)+(outlook.bonus||0);
  return Math.max(0,Math.min(100,Math.round(raw*100)/100));
 }
