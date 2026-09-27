@@ -60,92 +60,129 @@ async function analyzeETF(stock,env,officialResult=null){
   missingMetrics:[],links:{mops:"https://mops.twse.com.tw/"}};
  return reply(result);
 }
-async function analyze(stock,env,override=null,shared=null){
+async function analyze(stock,env,override=null){
  if(!env.FINMIND_TOKEN)return reply({error:"尚未在 Cloudflare 設定 FINMIND_TOKEN Secret。"},503);
- const datasets=[["TaiwanStockPrice",410],["TaiwanStockMonthRevenue",520],
-  ["TaiwanStockFinancialStatements",900],["TaiwanStockInstitutionalInvestorsBuySell",35],
-  ["TaiwanStockPER",410],["TaiwanStockCashFlowsStatement",600],["TaiwanStockMarginPurchaseShortSale",30],
-  ["TaiwanStockPriceAdj",410],["TaiwanStockBalanceSheet",240]];
- const data=await Promise.allSettled(datasets.map(([name,days])=>shared?.bulk&&name==="TaiwanStockMarginPurchaseShortSale"?
-   Promise.resolve([]):finmind(env,stock,name,days)));
+
+ // Core endpoint deliberately stays small enough for the free Worker:
+ // price, financial statement, institutional flow, valuation. Everything else is deferred.
+ const datasets=[
+  ["TaiwanStockPrice",410],
+  ["TaiwanStockFinancialStatements",900],
+  ["TaiwanStockInstitutionalInvestorsBuySell",35],
+  ["TaiwanStockPER",410]
+ ];
+ const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,stock,name,days)));
  const warnings=data.flatMap((r,i)=>r.status==="rejected"?
   [datasets[i][0]+"："+String(r.reason?.message||"取得失敗")]:[]);
- if(data[0].status==="rejected")return reply({error:"FinMind 歷史行情取得失敗，已停止評分。",warnings},503);
+ if(data[0].status==="rejected")return reply({error:"FinMind 歷史行情取得失敗，未產生核心分析。",warnings},503);
+
  const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
- const clean=normalize(rows(0),rows(1),rows(2),rows(3),rows(4),rows(5),rows(6),rows(7),rows(8));
- const datasetHealth=datasets.map(([name],i)=>{
-   const r=data[i];
-   const records=r.status==="fulfilled"?r.value:[];
-   const dates=records.map(x=>String(x?.date||"")).filter(x=>/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x));
-   const latestDate=dates.sort().at(-1)||null;
-   return {name,status:shared?.bulk&&name==="TaiwanStockMarginPurchaseShortSale"?"skipped":
-      r.status==="rejected"?"error":records.length?"ok":"empty",
-     records:records.length,latestDate,
-     message:r.status==="rejected"?String(r.reason?.message||"資料來源錯誤"):
-       shared?.bulk&&name==="TaiwanStockMarginPurchaseShortSale"?"首頁免費額度略過融資融券逐檔資料；請點入個股核對":
-       records.length?"已取得資料":"來源成功回應，但此股票／期間沒有資料"};
- });
- if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings,datasetHealth},404);
+ const clean=normalize(rows(0),[],rows(1),rows(2),rows(3),[],[],[],[]);
+ if(!clean.prices.length)return reply({error:"查無此股票可用行情，未產生分數。",warnings},404);
+
  const officialResult=override?{quote:override,errors:[]}:await officialQuote(stock);
  const official=officialResult.quote;
  const verification=reconcile(official,clean.prices);
  const marketDate=clean.prices.at(-1)?.date;
- let newsResearch=null;
- try{newsResearch=await researchNews(stock,marketDate,official?.market||override?.market||"上市",
-   shared?.bulk||shared?.skipNews?{...env,NEWS_FEED_URL:null,NEWS_FEED_TOKEN:null,DISABLE_NEWS_DISCOVERY:"true"}:env,
-   shared?.newsByMarket?.[official?.market||override?.market],official?.name||override?.name||"");}
- catch(error){warnings.push("重大訊息核對暫未完成："+String(error.message||error))}
- // Only individual analysis invokes Shioaji; daily five-stock requests must not turn
- // into repeated historical polling of a personal brokerage connection.
- let brokerVerification={state:sinopacReady(env)?"not_checked":"not_configured",
-  reason:"首頁批次不查詢券商，個股將盡力對照已完成交易日"};
- let brokerTechnicalPrices=[],brokerBars=[];
- if(!override&&sinopacReady(env)&&official?.date&&verification.state==="一致"&&
-    /^[0-9]{4}$/.test(stock)){
-   try{
-    const broker=await Promise.race([
-     privateBrokerHistory(stock,official.date,env),
-     new Promise(resolve=>setTimeout(()=>resolve({status:"timeout"}),6000))
-    ]);
-    brokerVerification=reconcileBrokerHistory(broker,official,clean.prices);
-    if(broker.status==="ok")brokerBars=broker.bars;
-    if(env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&
-        brokerVerification.state==="matched"&&broker.bars?.length>=61)
-      brokerTechnicalPrices=broker.bars;
-   }catch(error){
-    brokerVerification={state:"unavailable",reason:"永豐交叉核對暫不可用；不影響本次個股分析"};
-   }
- }
- const score=scoreStock({...clean,official,newsResearch,brokerTechnicalPrices});
- const financialInsights=summarizeFinancialStatements(clean);
- if(brokerVerification.state==="matched"&&brokerBars.length>=61&&score.technicalMode==="raw"){
-   const brokerIndicators=indicators(brokerBars);
-   brokerVerification.indicatorReview=compareRawTechnicalIndicators(score.indicators,brokerIndicators);
- }else if(brokerVerification.state==="matched"&&score.technicalMode==="adjusted"){
-   brokerVerification.indicatorReview={state:"not_comparable",
-    reason:"FinMind 使用除權息還原價、永豐使用未還原日線；不能直接比較技術指標數值"};
- }
+
+ // Core score intentionally leaves revenue/cash-flow/balance/margin/news missing.
+ // Missing fields remain unscored rather than blocking the response.
+ const score=scoreStock({...clean,official,newsResearch:null});
  if(verification.state!=="一致"||official?.date!==clean.prices.at(-1)?.date)score.score=null;
+
  const latest=clean.prices.at(-1);
  const candles=clean.prices.filter(p=>[p.open,p.high,p.low,p.close].every(x=>Number.isFinite(x)&&x>0)&&
- p.high>=Math.max(p.open,p.close,p.low)&&p.low<=Math.min(p.open,p.close,p.high)).slice(-120);
+  p.high>=Math.max(p.open,p.close,p.low)&&p.low<=Math.min(p.open,p.close,p.high)).slice(-120);
+ const financialInsights=summarizeFinancialStatements(clean);
+ const datasetHealth=datasets.map(([name],i)=>{
+  const r=data[i],records=r.status==="fulfilled"?r.value:[];
+  const dates=records.map(x=>String(x?.date||"")).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x));
+  return {name,status:r.status==="rejected"?"error":records.length?"ok":"empty",
+   records:records.length,latestDate:dates.sort().at(-1)||null,
+   message:r.status==="rejected"?String(r.reason?.message||"資料來源錯誤"):
+    records.length?"已取得資料":"來源成功回應，但此股票／期間沒有資料"};
+ });
  const links={twse:"https://www.twse.com.tw/",tpex:"https://www.tpex.org.tw/",mops:"https://mops.twse.com.tw/"};
- const responseBody={stock,name:official?.name||"",market:official?.market||"尚未辨認",
-  asOf:new Date().toISOString(),finmind:{date:latest.date,close:latest.close},official,verification,
-  score,candles,newsResearch,datasetHealth,financialInsights,
-  brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason,
-   indicatorReview:brokerVerification.indicatorReview||null,
-   useInPublicScoring:env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true"&&brokerVerification.state==="matched"},
+ const responseBody={stock,kind:"stock",name:official?.name||"",market:official?.market||"尚未辨認",
+  asOf:new Date().toISOString(),analysisStage:"core",
+  deferredSections:["financial-extra","industry-comparison","news","broker-check"],
+  finmind:{date:latest.date,close:latest.close},official,verification,score,candles,
+  newsResearch:null,datasetHealth,financialInsights,
+  brokerVerification:{state:"deferred",reason:"永豐交叉核對改為獨立延伸分析，不阻塞核心結果"},
   missingMetrics:Object.entries(score.parts).flatMap(([group,part])=>
-    part.items.filter(item=>item.score===null).map(item=>({group,name:item.name,reason:item.note||"來源資料不足"}))),
+   part.items.filter(item=>item.score===null).map(item=>({group,name:item.name,reason:item.note||"來源資料不足"}))),
   valuationLatest:clean.valuation.filter(v=>v.date<=marketDate&&
-    (Date.parse(marketDate+"T00:00:00Z")-Date.parse(v.date+"T00:00:00Z"))/86400000<=10)
-    .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
-  sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links};
+   (Date.parse(marketDate+"T00:00:00Z")-Date.parse(v.date+"T00:00:00Z"))/86400000<=10)
+   .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
+  industryComparison:{items:[],reason:"同業比較載入中"},
+  sourceWarnings:[...warnings,...(official?[]:officialResult.errors)],links};
  responseBody.aiAssessment=buildAIResearchAssessment(responseBody);
- if(typeof shared?.persist==="function")await shared.persist(clean,responseBody);
- return reply(responseBody);
+ return reply(responseBody,200,600);
 }
+
+async function analyzeFinancialExtra(stock,env){
+ if(!env.FINMIND_TOKEN)return reply({error:"FINMIND_TOKEN 未設定"},503);
+ const datasets=[
+  ["TaiwanStockFinancialStatements",900],
+  ["TaiwanStockMonthRevenue",520],
+  ["TaiwanStockCashFlowsStatement",600],
+  ["TaiwanStockBalanceSheet",240]
+ ];
+ const data=await Promise.allSettled(datasets.map(([name,days])=>finmind(env,stock,name,days)));
+ const rows=i=>data[i].status==="fulfilled"?data[i].value:[];
+ const clean=normalize([],rows(1),rows(0),[],[],rows(2),[],[],rows(3));
+ const financialInsights=summarizeFinancialStatements(clean);
+ return reply({stock,financialInsights,
+  datasetHealth:datasets.map(([name],i)=>({
+   name,status:data[i].status==="rejected"?"error":rows(i).length?"ok":"empty",
+   records:rows(i).length,
+   message:data[i].status==="rejected"?String(data[i].reason?.message||"取得失敗"):""
+  }))},200,900);
+}
+
+async function analyzeIndustryExtra(stock){
+ try{
+  const official=await scanOfficialUniverse();
+  return reply({stock,industryComparison:buildOfficialIndustryComparison(stock,official)},200,900);
+ }catch(error){
+  return reply({stock,industryComparison:{items:[],reason:"官方同業估值暫不可用，PR 待查"}},200,300);
+ }
+}
+
+async function analyzeNewsExtra(stock,env){
+ try{
+  const officialResult=await officialQuote(stock),official=officialResult.quote;
+  const marketDate=official?.date;
+  const newsResearch=await researchNews(stock,marketDate,official?.market||"上市",env,
+   undefined,official?.name||"");
+  return reply({stock,newsResearch},200,600);
+ }catch(error){
+  return reply({stock,newsResearch:{status:"unverified",events:[],checked:[],
+   warnings:["重大訊息核對暫未完成："+String(error.message||error)]}},200,300);
+ }
+}
+
+async function analyzeBrokerExtra(stock,env){
+ if(!sinopacReady(env))return reply({stock,brokerVerification:{state:"not_configured"}},200,600);
+ try{
+  const [officialResult,pricesRaw]=await Promise.all([
+   officialQuote(stock),finmind(env,stock,"TaiwanStockPrice",120)
+  ]);
+  const official=officialResult.quote;
+  const prices=normalize(pricesRaw,[],[],[],[],[],[],[],[]).prices;
+  if(!official?.date)return reply({stock,brokerVerification:{state:"unavailable",reason:"官方日期不足"}},200,300);
+  const broker=await Promise.race([
+   privateBrokerHistory(stock,official.date,env),
+   new Promise(resolve=>setTimeout(()=>resolve({status:"timeout"}),6000))
+  ]);
+  const brokerVerification=reconcileBrokerHistory(broker,official,prices);
+  return reply({stock,brokerVerification},200,600);
+ }catch(error){
+  return reply({stock,brokerVerification:{state:"unavailable",
+   reason:"永豐交叉核對暫不可用；不影響核心分析"}},200,300);
+ }
+}
+
 // Free-plan homepage ranking: scan the whole official market once, then deeply
 // analyze only a very small candidate set. This deliberately avoids D1 and background jobs.
 function median(values){
@@ -555,7 +592,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"full_market_100_40_30_20_10_7_5_confidence_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.42.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.50.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -597,7 +634,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.42.0");
+  const key=new Request(url.origin+"/api/observations?model=0.50.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
@@ -610,85 +647,37 @@ export default {async fetch(request,env,ctx){
    detail:String(err.message||err)},503)}
  }
  if(url.pathname==="/api/analyze"){
-  const stock=(url.searchParams.get("stock")||"").trim();
-  if(!valid(stock))return reply({error:"請輸入 4 至 6 位數股票代號。"},400);
-  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.42.0"),cache=caches.default;
+  const stock=(url.searchParams.get("stock")||"").trim().toUpperCase();
+  if(!valid(stock))return reply({error:"請輸入有效的股票或 ETF 代號。"},400);
+  const key=new Request(url.origin+"/api/analyze?stock="+stock+"&model=0.50.0"),cache=caches.default;
   const hit=await cache.match(key);if(hit)return hit;
   try{
-   const res=isETFCandidate(stock)?
-    await analyzeETF(stock,env):await analyze(stock,env);
-   if(res.ok){
-    const payload=await res.clone().json();
-    // 不依賴 D1：直接取同日官方全市場批次估值，顯示可驗證的同產業 PE/PB/殖利率 PR。
-    // 其餘財報、技術、籌碼仍依個股真實資料分析，不能由估值表推測。
-    if(payload.kind!=="etf"&&!hasMarketDB(env)){
-     try{
-      const official=await Promise.race([
-       scanOfficialUniverse(),
-       new Promise((_,reject)=>setTimeout(()=>reject(Error("同業比較逾時")),5000))
-      ]);
-      payload.industryComparison=buildOfficialIndustryComparison(stock,official);
-     }catch(error){
-      payload.industryComparison={items:[],reason:"官方同業估值暫不可用，PR 待查"};
-     }
-    }
-    if(false&&payload.kind!=="etf"&&hasMarketDB(env)){
-     try{
-      const company=await getSavedCompany(env.MARKET_DB,stock);
-      if(company){
-       const stored=await getSavedProfile(env.MARKET_DB,stock);
-       // A current, same-session verified archive may restore a complete score when
-       // one upstream feed is transiently unavailable during an individual revisit.
-       // Never reuse an older session, unverified profile or unearned coverage.
-       if(payload.score?.score===null&&stored?.marketDate===payload.finmind.date&&
-          company.date===payload.finmind.date&&payload.verification?.state==="一致"&&
-          stored.metrics?.verified===true&&stored.score?.scoreModelVersion==="chips_flow20_margin10_v1"&&
-           stored.score?.coveragePercent===100&&
-          Number.isFinite(stored.score?.baseScore)&&
-          ["fundamental","technical","chips"].every(k=>
-           stored.score.parts?.[k]?.covered===stored.score.parts?.[k]?.max)){
-        const currentDelta=payload.score.newsDelta??0;
-        const archiveScore=stored.score;
-        payload.score={...archiveScore,newsDelta:currentDelta,
-         parts:{...archiveScore.parts,news:payload.score.parts?.news||archiveScore.parts.news},
-         score:Math.max(0,Math.min(100,
-          Math.round((archiveScore.baseScore+currentDelta)*100)/100)),
-         scoreSource:"同交易日已核實研究快照"};
-        if(stored.metrics.financialInsights){
-         const original=stored.metrics.financialInsights;
-         const recent=payload.financialInsights||{};
-         const sameIncome=original.incomeDate===recent.incomeDate;
-         const sameBalance=original.balanceDate===recent.balanceDate;
-         payload.financialInsights={...recent,
-          ...(sameIncome&&Number.isFinite(original.netMargin)&&recent.netMargin==null?
-           {netMargin:original.netMargin}:{}),
-          ...(sameIncome&&sameBalance&&Number.isFinite(original.quarterlyRoe)&&
-           recent.quarterlyRoe==null?{quarterlyRoe:original.quarterlyRoe}:{})};
-        }
-       }
-       if(stored?.metrics){
-        const own={stock,industry:company.industry,market:company.market,
-         marketDate:payload.finmind.date,metrics:{...stored.metrics,
-          technical:payload.score?.indicators||stored.metrics.technical,
-          technicalDate:payload.score?.indicators?.date||null}};
-        const peers=await getIndustryPeers(env.MARKET_DB,company,payload.finmind.date);
-        payload.industryComparison=buildPeerComparison(own,peers);
-       }else payload.industryComparison={industry:company.industry,items:[],
-        reason:"同產業財報尚未入庫，暫不計算 PR"};
-       const f=stored.metrics||{};
-       payload.researchArchive={finance:stored.financialPeriod,technical:stored.technicalDate,
-        chips:stored.chipsDate,updatedAt:stored.fetchedAt};
-      }
-     }catch(error){payload.industryComparison={industry:null,items:[],
-      reason:"同產業資料庫暫不可用，PR 待查"}}
-    }
-    const result=reply(payload,200,900);
-    ctx.waitUntil(cache.put(key,result.clone()));
-    return result;
-   }
+   const res=isETFCandidate(stock)?await analyzeETF(stock,env):await analyze(stock,env);
+   if(res.ok)ctx.waitUntil(cache.put(key,res.clone()));
    return res;
-  }catch(err){return reply({error:"資料來源連線異常；未產生評分。",
-   detail:String(err.message||err)},503)}
+  }catch(err){
+   return reply({error:"核心分析暫時失敗。",detail:String(err.message||err)},503);
+  }
+ }
+ if(url.pathname==="/api/analyze-financial"){
+  const stock=(url.searchParams.get("stock")||"").trim().toUpperCase();
+  if(!valid(stock)||isETFCandidate(stock))return reply({error:"此端點僅適用一般公司股票。"},400);
+  return analyzeFinancialExtra(stock,env);
+ }
+ if(url.pathname==="/api/analyze-industry"){
+  const stock=(url.searchParams.get("stock")||"").trim().toUpperCase();
+  if(!valid(stock)||isETFCandidate(stock))return reply({error:"此端點僅適用一般公司股票。"},400);
+  return analyzeIndustryExtra(stock);
+ }
+ if(url.pathname==="/api/analyze-news"){
+  const stock=(url.searchParams.get("stock")||"").trim().toUpperCase();
+  if(!valid(stock)||isETFCandidate(stock))return reply({error:"此端點僅適用一般公司股票。"},400);
+  return analyzeNewsExtra(stock,env);
+ }
+ if(url.pathname==="/api/analyze-broker"){
+  const stock=(url.searchParams.get("stock")||"").trim().toUpperCase();
+  if(!valid(stock)||isETFCandidate(stock))return reply({error:"此端點僅適用一般公司股票。"},400);
+  return analyzeBrokerExtra(stock,env);
  }
  if(url.pathname.startsWith("/api/"))return reply({error:"找不到 API"},404);
  return env.ASSETS.fetch(request);
