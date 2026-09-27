@@ -444,14 +444,13 @@ async function refreshDaily(){
   const response=await fetch("/api/observations");
   const d=await response.json();
   if(!response.ok)throw Error(d.reason||"研究服務暫不可用");
-  const rows=(d.stocks||[]).filter(x=>(Number.isFinite(x.score)||x.referenceCandidate)&&
-   (x.coveredPoints>0||x.referenceCandidate)).slice(0,5);
+  const rows=(d.stocks||[]).filter(x=>x&&x.stock).slice(0,5);
   status.textContent=rows.length?"":(d.reason||"");
   status.hidden=rows.length||!status.textContent;
   for(const stock of rows)list.append(renderStockCard(stock));
   if(!rows.length){
    status.hidden=false;
-   status.textContent=d.reason||"尚無完整且已核實的標的，暫不顯示名單。";
+   status.textContent=d.reason||"目前無法取得研究候選，請稍後重試。";
   }
  }catch(error){status.textContent="觀察名單暫無法更新："+error.message;status.hidden=false;}
 }
