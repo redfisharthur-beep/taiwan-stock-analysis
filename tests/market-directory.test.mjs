@@ -17,7 +17,8 @@ function mockDB(records){
       technical:2,chips:1,fullCoverage:1,lastResearch:"2026-09-24T11:00:00Z"};
      if(sql.includes("SELECT value,updated_at FROM sync_state"))return {value:JSON.stringify({
       date:"2026-09-24",count:records.length,markets:[]}),updated_at:"2026-09-24T11:00:00Z"};
-     if(sql.includes("UPDATE companies SET last_attempt"))return {stock:"2330"};
+     if(sql.includes("SELECT q.stock,q.name,q.market"))return {stock:"2330",name:"台積電",market:"上市",industry:"半導體",close:100,date:"2026-09-24",turnover:1,volume:1,dividendYield:2,valuationDate:"2026-09-24"};
+     if(sql.includes("UPDATE companies SET last_attempt"))return null;
      return null;
     },
     async all(){queries.push({sql:this.sql,args:this.args});return {results:records}}};
@@ -70,9 +71,11 @@ test("market summary separates number of companies, archived analyses and full c
 test("scheduled queue prioritizes never-tried stocks and cools down failures",async()=>{
  const db=mockDB([]),company=await claimNextCompany(db);
  assert.equal(company.stock,"2330");
- const statement=db.queries.find(x=>x.sql.includes("UPDATE companies SET last_attempt"));
- assert.match(statement.sql,/last_attempt IS NULL THEN 0/);
- assert.match(statement.sql,/SELECT q\.stock FROM companies q/);
- assert.match(statement.sql,/c2\.market=q\.market/);
- assert.equal(statement.args.length,3);
+ const selectStatement=db.queries.find(x=>x.sql.includes("SELECT q.stock,q.name,q.market"));
+ assert.match(selectStatement.sql,/q\.last_attempt IS NULL/);
+ assert.match(selectStatement.sql,/c2\.market=q\.market/);
+ assert.equal(selectStatement.args.length,2);
+ const updateStatement=db.queries.find(x=>x.sql.includes("UPDATE companies SET last_attempt"));
+ assert.ok(updateStatement);
+ assert.equal(updateStatement.args.length,2);
 });
