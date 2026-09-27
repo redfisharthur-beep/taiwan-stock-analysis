@@ -174,7 +174,7 @@ export function rankUniverseCandidates(rows,mode="daily",limit=5){
   // 僅為可解釋的選股排序鍵，絕非內在價值、投資報酬率或四面向百分制總分。
   const valuationPoints=r.kind==="etf"?0:(per===null?0:per<=12?4:per<=18?3:per<=25?2:1)+
    (pbr===null?0:pbr<=1.2?4:pbr<=1.8?3:pbr<=2.5?2:1)+
-   (yieldPct===null?0:yieldPct>=4?3:yieldPct>=3?2:1);
+   (yieldPct===null?0:yieldPct>=3?1:0);
   return {...r,screening:{per,pbr,dividendYield:yieldPct,checks,passed,known,
    passedAll:r.kind==="stock"&&known===3&&passed===3,ratioCoverage,
    // Liquidity is now a minimum eligibility gate upstream, not a ranking bonus.
