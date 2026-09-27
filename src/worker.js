@@ -8,6 +8,7 @@ import {buildPeerComparison,buildOfficialIndustryComparison} from "./industry.js
 import {hasMarketDB,saveUniverse,getMarketSummary,getVerifiedTopFive,getMarketPage,searchSavedStocks,getSavedCompany,getSavedProfile,claimNextCompany,saveResearch,saveETFResearch,recordResearchFailure,getIndustryPeers} from "./market-db.js";
 import {sinopacReady,privateBrokerHistory,reconcileBrokerHistory,compareRawTechnicalIndicators} from "./sinopac.js";
 import {assessCandidateRisk,assessIndustryOutlook,calculateValueScore} from "./risk.js";
+import {buildAIResearchAssessment} from "./ai-assessment.js";
 const reply=(body,status=200,ttl=900)=>new Response(JSON.stringify(body),{status,headers:{
  "Content-Type":"application/json; charset=utf-8",
  "Cache-Control":status===200?"public, max-age=0, s-maxage="+ttl:"no-store",
@@ -136,6 +137,7 @@ async function analyze(stock,env,override=null,shared=null){
     (Date.parse(marketDate+"T00:00:00Z")-Date.parse(v.date+"T00:00:00Z"))/86400000<=10)
     .sort((a,b)=>a.date.localeCompare(b.date)).at(-1)||null,
   sourceWarnings:[...warnings,...(newsResearch?.warnings||[]),...(official?[]:officialResult.errors)],links};
+ responseBody.aiAssessment=buildAIResearchAssessment(responseBody);
  if(typeof shared?.persist==="function")await shared.persist(clean,responseBody);
  return reply(responseBody);
 }
@@ -258,6 +260,7 @@ async function analyzeRankingCandidate(candidate,env){
   financials:{eps:eps?.eps??null,operatingCashFlow:null,debtRatioPct:null},
   relativeValue:candidate.relativeValue||null,qualityProxy:candidate.qualityProxy||null,
   brokerVerification:{state:brokerVerification.state,reason:brokerVerification.reason||null},
+  accountingRisk:score.accountingRisk||null,
   risk,valueScore,detailVerified:true};
 }
 
@@ -376,7 +379,7 @@ export default {async fetch(request,env,ctx){
   rankingMode:"2300_to_100_to_30_to_15_to_10_to_5_free_funnel",sinopacConfigured:sinopacReady(env),
   brokerAutomaticCheck:sinopacReady(env),brokerPublicAnalysisPermissionConfigured:
    env.SJ_MARKET_DATA_REDISPLAY_APPROVED==="true",
-  version:"0.35.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
+  version:"0.36.0",marketDBConfigured:false,databaseMode:"disabled_free_plan",time:new Date().toISOString()});
  if(url.pathname==="/api/search"){
   const q=(url.searchParams.get("q")||"").trim();
   if(!q||q.length>30)return reply({results:[]},200,90);
@@ -418,7 +421,7 @@ export default {async fetch(request,env,ctx){
  }
  if(url.pathname==="/api/observations"||url.pathname==="/api/top5"){
   const cache=caches.default;
-  const key=new Request(url.origin+"/api/observations?model=0.35.0");
+  const key=new Request(url.origin+"/api/observations?model=0.36.0");
   const hit=await cache.match(key);if(hit)return hit;
   try{
    const body=await computeDailyObservations(env);
