@@ -208,17 +208,22 @@ export async function claimNextCompany(db){
  const failureCooldown=new Date(Date.now()-6*3600000).toISOString();
  const refreshCooldown=new Date(Date.now()-20*3600000).toISOString();
  const claimed=await db.prepare(`UPDATE companies SET last_attempt=?
- WHERE stock=(SELECT stock FROM companies
-  WHERE last_scan_at=(
-    SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=companies.market)
-   AND close>0 AND quote_date IS NOT NULL
-   AND ((last_attempt IS NULL)
-    OR (last_profile_at IS NULL AND last_attempt<?)
-    OR (last_profile_at IS NOT NULL AND last_attempt<? AND
-      (last_error IS NOT NULL OR substr(last_profile_at,1,10)<quote_date))))
-  ORDER BY CASE WHEN last_attempt IS NULL THEN 0
-    WHEN last_profile_at IS NULL THEN 1 ELSE 2 END,
-    COALESCE(last_profile_at,last_attempt,'') ASC,stock LIMIT 1)
+ WHERE stock=(
+  SELECT q.stock FROM companies q
+  WHERE q.last_scan_at=(
+    SELECT MAX(c2.last_scan_at) FROM companies c2 WHERE c2.market=q.market)
+   AND q.close>0 AND q.quote_date IS NOT NULL
+   AND (
+    q.last_attempt IS NULL
+    OR (q.last_profile_at IS NULL AND q.last_attempt<?)
+    OR (q.last_profile_at IS NOT NULL AND q.last_attempt<? AND
+      (q.last_error IS NOT NULL OR substr(q.last_profile_at,1,10)<q.quote_date))
+   )
+  ORDER BY CASE WHEN q.last_attempt IS NULL THEN 0
+    WHEN q.last_profile_at IS NULL THEN 1 ELSE 2 END,
+    COALESCE(q.last_profile_at,q.last_attempt,'') ASC,q.stock
+  LIMIT 1
+ )
  RETURNING stock,name,market,industry,close,quote_date AS date,turnover,volume,
  per,pbr,dividend_yield AS dividendYield,valuation_date AS valuationDate`)
  .bind(now(),failureCooldown,refreshCooldown).first();
